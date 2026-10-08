@@ -36,8 +36,16 @@ export function buildApp(renderer: CliRenderer, initialPath: string) {
   }
   places.add(new BoxRenderable(renderer, { flexGrow: 1 }));
   places.add(new TextRenderable(renderer, { content: "  /\\_/\\\n ( o.o )\n  > ^ <\n\n ?  all shortcuts\n s  share session", fg: C.peach, flexShrink: 0 }));
-  const listPanel = new BoxRenderable(renderer, { flexGrow: 1, flexBasis: 0, minWidth: 0, border: true, borderStyle: "rounded", borderColor: C.mint, title: " files ", titleColor: C.mint });
+  const listPanel = new BoxRenderable(renderer, { flexGrow: 1, flexBasis: 0, minWidth: 0, border: true, borderStyle: "rounded", borderColor: C.mint, title: " files ", titleColor: C.mint, flexDirection: "column" });
   body.add(listPanel);
+  const searchInput = new InputRenderable(renderer, {
+    id: "search", visible: false, flexShrink: 0,
+    placeholder: "Filter file names…", textColor: C.ink,
+    backgroundColor: C.selected, focusedBackgroundColor: C.selected, cursorColor: C.peach,
+  });
+  listPanel.add(searchInput);
+  searchInput.on(InputRenderableEvents.INPUT, (value: string) => { query = value; filter(); });
+  searchInput.on(InputRenderableEvents.ENTER, () => finishSearch(false));
   const list = new SelectRenderable(renderer, {
     id: "files", flexGrow: 1, minHeight: 0, showDescription: false, showScrollIndicator: true,
     options: [], textColor: C.ink, backgroundColor: C.bg, focusedBackgroundColor: C.bg,
@@ -106,6 +114,7 @@ export function buildApp(renderer: CliRenderer, initialPath: string) {
     const items = await entries(path);
     if (disposed || version !== loadVersion) return;
     cwd = resolve(path); all = items; query = "";
+    if (searchInput.visible) finishSearch(false);
     breadcrumb.content = ` ${clean(cwd.replace(homedir(), "~"))}`;
     filter(selectPath);
   }
@@ -202,6 +211,7 @@ export function buildApp(renderer: CliRenderer, initialPath: string) {
     list.focus();
   }
   function dialog(title: string, content: string) {
+    if (searchInput.visible) finishSearch(false);
     closeModal(); list.blur(); preview.blur();
     modal = new BoxRenderable(renderer, { id: "dialog", position: "absolute", top: 0, left: 0, width: Math.max(20, Math.min(76, renderer.width - 2)), height: Math.min(34, renderer.height), zIndex: 50, border: true, borderStyle: "rounded", borderColor: C.peach, title: ` ${title} `, titleColor: C.peach, backgroundColor: C.panel, flexDirection: "column" });
     app.add(modal);
@@ -213,11 +223,10 @@ export function buildApp(renderer: CliRenderer, initialPath: string) {
     modal.add(modalMessage);
     return scroll;
   }
-  function ask(title: string, description: string, value: string, action: (value: string) => Promise<unknown>, change?: (value: string) => void) {
+  function ask(title: string, description: string, value: string, action: (value: string) => Promise<unknown>) {
     dialog(title, description);
     prompt = new InputRenderable(renderer, { value, placeholder: "Type here, Enter confirms", textColor: C.ink, backgroundColor: C.selected, focusedBackgroundColor: C.selected, cursorColor: C.peach });
     modal!.add(prompt);
-    if (change) prompt.on(InputRenderableEvents.INPUT, change);
     prompt.on(InputRenderableEvents.ENTER, (answer: string) => {
       if (busy) return;
       busy = true;
@@ -226,7 +235,16 @@ export function buildApp(renderer: CliRenderer, initialPath: string) {
     prompt.focus();
   }
   function search() {
-    ask("Find in this folder", "Filters file names as you type. Enter keeps the filter.", query, async () => {}, value => { query = value; filter(); });
+    previewFocused = false; layout();
+    listPanel.borderColor = C.mint; previewPanel.borderColor = C.line;
+    searchInput.value = query; searchInput.visible = true; searchInput.focus();
+    say("Type to filter file names. Enter keeps the filter; Esc clears it.");
+  }
+  function finishSearch(clear: boolean) {
+    searchInput.visible = false;
+    if (clear) { query = ""; filter(); }
+    list.focus();
+    say(query ? `Filter: ${query}. / changes it, Esc clears it.` : "Search closed.");
   }
   function newEntry(folder: boolean) {
     ask(folder ? "New folder" : "New file", "Existing files are never overwritten.", "", async name => {
@@ -266,6 +284,12 @@ export function buildApp(renderer: CliRenderer, initialPath: string) {
   function onKey(key: KeyEvent) {
     if (busy) { key.preventDefault(); return; }
     if (modal) { if (key.name === "escape") { key.preventDefault(); closeModal(); } return; }
+    if (searchInput.focused) {
+      if (key.name === "escape" || key.name === "tab") {
+        key.preventDefault(); finishSearch(key.name === "escape");
+      }
+      return;
+    }
     if (key.ctrl || key.meta || key.super) return;
     if (key.name === "tab") {
       key.preventDefault(); previewFocused = !previewFocused;
@@ -274,10 +298,10 @@ export function buildApp(renderer: CliRenderer, initialPath: string) {
       previewPanel.borderColor = previewFocused ? C.mint : C.line;
       layout(); return;
     }
-    if (key.name === "escape") { query = ""; filter(); previewFocused = false; list.focus(); layout(); key.preventDefault(); return; }
+    if (key.name === "escape") { searchInput.visible = false; query = ""; filter(); previewFocused = false; list.focus(); layout(); key.preventDefault(); return; }
     if (key.name === "q") { renderer.destroy(); return; }
     if (key.name === "?" || key.sequence === "?") { help(); key.preventDefault(); return; }
-    const globalAction = key.name === "s" ? share : key.name === "e" ? edit : key.name === "space" ? toggleMusic : undefined;
+    const globalAction = key.name === "/" ? search : key.name === "s" ? share : key.name === "e" ? edit : key.name === "space" ? toggleMusic : undefined;
     if (globalAction) { key.preventDefault(); run(globalAction); return; }
     if (previewFocused) {
       if (key.name === "return") { key.preventDefault(); copyPreview(); }

@@ -36,7 +36,7 @@ bun run dev
 bun src/index.ts ~/Documents
 ```
 
-The sidebar disappears on smaller terminals. Below 72 columns, Tab switches between the file list and preview. With the preview focused, Enter copies its displayed text using OSC 52. Selecting text with the mouse also copies it when you release the button, including the pairing password in the SSH dialog. Your terminal must allow clipboard writes.
+The sidebar disappears on smaller terminals. Below 72 columns, Tab switches between the file list and preview. Search uses a one-line field above the file list, so matching files remain visible while you type. With the preview focused, Enter copies its displayed text using OSC 52. Selecting text with the mouse also copies it when you release the button, including the pairing password in the SSH dialog. Your terminal must allow clipboard writes.
 
 ## Join from another device
 
@@ -83,7 +83,8 @@ Headless mode prints the pairing password to standard output. Keep that output p
 | Left, h, Backspace | Parent folder |
 | Tab | Switch files and preview focus |
 | Enter in preview | Copy displayed preview text to the terminal clipboard |
-| / | Filter this folder's file names |
+| / | Open the inline filename filter above the file list |
+| Enter while filtering | Keep the filter and return to results |
 | Esc | Close dialog or clear filter |
 | . | Show hidden files |
 | g | Go to a folder |

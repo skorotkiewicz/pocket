@@ -2,7 +2,7 @@ import { test, expect, spyOn } from "bun:test";
 import { mkdtemp, rm, mkdir, symlink, lstat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { ImageRenderable } from "@opentui/core";
+import { ImageRenderable, InputRenderable } from "@opentui/core";
 import { createTestRenderer } from "@opentui/core/testing";
 import { buildApp } from "../src/ui";
 import { childPath, create, copyInto, renameEntry, entries, textPreview, waveform, musicPreview } from "../src/files";
@@ -188,4 +188,48 @@ test("selecting the pairing password copies only the selection on mouse release"
     copy.mockRestore(); setup.renderer.destroy();
     await rm(directory, { recursive: true, force: true });
   }
+});
+
+test("inline search keeps results visible, accepts Enter, and clears on Escape", async () => {
+  const directory = await fixture();
+  const setup = await createTestRenderer({ width: 110, height: 30 });
+  try {
+    const app = buildApp(setup.renderer, directory); await app.ready;
+    setup.mockInput.pressKey("/"); await setup.renderOnce();
+    const input = setup.renderer.root.findDescendantById("search") as InputRenderable;
+    expect(setup.renderer.root.findDescendantById("dialog")).toBeUndefined();
+    expect(input.visible).toBe(true);
+    expect(input.height).toBe(1);
+    expect(input.y).toBeLessThan(app.list.y);
+    expect(setup.captureCharFrame()).toContain("folder/");
+    expect(setup.captureCharFrame()).toContain("hello.txt");
+    await setup.mockInput.typeText("hello");
+    await setup.waitForFrame(frame => frame.includes("Hello, pocket!"));
+    expect(input.focused).toBe(true);
+    expect(app.list.options.length).toBe(1);
+    setup.resize(54, 18); await setup.renderOnce();
+    expect(input.y).toBeLessThan(app.list.y);
+    expect(setup.captureCharFrame()).toContain("hello.txt");
+    setup.mockInput.pressEnter(); await setup.renderOnce();
+    expect(input.visible).toBe(false);
+    expect(app.list.focused).toBe(true);
+    expect(app.list.options.length).toBe(1);
+    setup.mockInput.pressKey("/");
+    expect(input.value).toBe("hello");
+    await setup.mockInput.typeText("n?qs"); await setup.renderOnce();
+    expect(app.list.options.length).toBe(0);
+    expect(setup.renderer.root.findDescendantById("dialog")).toBeUndefined();
+    expect(setup.renderer.isDestroyed).toBe(false);
+    setup.mockInput.pressEscape(); await Bun.sleep(60); await setup.renderOnce();
+    expect(input.visible).toBe(false);
+    expect(app.list.focused).toBe(true);
+    expect(app.list.options.length).toBe(2);
+    expect(setup.captureCharFrame()).toContain("folder/");
+    setup.mockInput.pressTab();
+    setup.mockInput.pressKey("/"); await setup.renderOnce();
+    expect(input.visible).toBe(true);
+    expect(input.focused).toBe(true);
+    expect(input.value).toBe("");
+    expect(setup.captureCharFrame()).toContain("folder/");
+  } finally { setup.renderer.destroy(); await rm(directory, { recursive: true, force: true }); }
 });
