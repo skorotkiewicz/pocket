@@ -28,6 +28,19 @@ A cat-sized OpenTUI file manager. Peach labels, mint selection, compact panels, 
 
 ## Run
 
+### Install on Arch Linux
+
+Install [pocket-bin from the AUR](https://aur.archlinux.org/packages/pocket-bin):
+
+```sh
+yay -S pocket-bin
+pocket
+```
+
+The package includes the TUI and SSH server. You don't need Bun or Rust to run it.
+
+### Run from source
+
 Linux is the supported host. Install Bun, Rust, tmux 3.3 or newer and GNU coreutils. FFmpeg enables audio metadata, waveform and playback. `gio`, supplied by GLib, enables system trash and default-app opening. `xdg-open` from xdg-utils is the fallback opener.
 
 For example, on Debian or Ubuntu:
