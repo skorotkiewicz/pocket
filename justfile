@@ -7,6 +7,7 @@ default:
 
 # Build the single ./pocket executable, including the TUI and SSH server.
 build:
+    cargo build --release --all-features --manifest-path server/Cargo.toml
     bun run build
 
 # Run from source with the Rust SSH server and tmux.

@@ -5,7 +5,7 @@ pkgrel=1
 pkgdesc="A terminal file manager with previews, playlists and a shared SSH session"
 arch=('x86_64' 'aarch64')
 url="https://github.com/skorotkiewicz/pocket"
-license=('LicenseRef-unknown')
+license=('MIT')
 depends=('glibc' 'gcc-libs' 'tmux' 'coreutils')
 optdepends=(
   'ffmpeg: music tags, waveform previews and host audio playback'
@@ -26,4 +26,5 @@ package() {
   install -Dm755 pocket "$pkgdir/usr/bin/pocket"
   install -Dm644 README.md "$pkgdir/usr/share/doc/$pkgname/README.md"
   install -Dm644 logo.svg "$pkgdir/usr/share/doc/$pkgname/logo.svg"
+  install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
 }
