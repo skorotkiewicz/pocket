@@ -6,6 +6,8 @@ use russh::{
     keys::{Algorithm, HashAlg, PrivateKey, PublicKey},
     server::{self, Auth, Msg, Server as _, Session},
 };
+#[cfg(feature = "embedded-tui")]
+use std::os::unix::fs::DirBuilderExt;
 use std::{
     collections::HashMap,
     io::{Read, Write},
@@ -353,6 +355,45 @@ impl Drop for SessionGuard {
     }
 }
 
+#[cfg(feature = "embedded-tui")]
+const TUI_BINARY: &[u8] = include_bytes!(env!("POCKET_TUI_BINARY"));
+
+#[cfg(feature = "embedded-tui")]
+struct ExtractedTui(PathBuf);
+
+#[cfg(feature = "embedded-tui")]
+impl ExtractedTui {
+    fn extract() -> Result<Self> {
+        // ponytail: per-run extraction avoids cache trust/locking; add a verified cache if startup IO matters.
+        let directory = std::env::temp_dir().join(format!(
+            "pocket-tui-{}-{:032x}",
+            std::process::id(),
+            rand::random::<u128>()
+        ));
+        std::fs::DirBuilder::new()
+            .mode(0o700)
+            .create(&directory)
+            .context("Create private TUI runtime directory. Check TMPDIR.")?;
+        let tui = Self(directory);
+        let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(tui.0.join("pocket-tui"))
+            .context("Create bundled TUI executable")?;
+        file.write_all(TUI_BINARY).context("Extract bundled TUI")?;
+        file.set_permissions(std::fs::Permissions::from_mode(0o700))?;
+        Ok(tui)
+    }
+}
+
+#[cfg(feature = "embedded-tui")]
+impl Drop for ExtractedTui {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     let options = Options::parse();
@@ -378,7 +419,12 @@ async fn main() -> Result<()> {
         }
         None => options.listen.ip().to_string(),
     };
-    for tool in ["tmux", "bun"] {
+    let tools: &[&str] = if cfg!(feature = "embedded-tui") {
+        &["tmux"]
+    } else {
+        &["tmux", "bun"]
+    };
+    for &tool in tools {
         let output = Command::new(tool)
             .arg(if tool == "tmux" { "-V" } else { "--version" })
             .output()
@@ -422,11 +468,10 @@ async fn main() -> Result<()> {
     };
     let uri = format!("ssh://{user}@{uri_host}:{port}");
     let ssh_command = format!("ssh -t -p {port} {user}@{host}");
-    let project = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .context("Project directory")?
-        .to_path_buf();
-    let status = tmux(&socket)
+    #[cfg(feature = "embedded-tui")]
+    let tui = ExtractedTui::extract()?;
+    let mut launch = tmux(&socket);
+    launch
         .args([
             "new-session",
             "-d",
@@ -439,9 +484,17 @@ async fn main() -> Result<()> {
             "-c",
         ])
         .arg(&folder)
-        .arg("--")
-        .arg("bun")
-        .arg(project.join("src/index.ts"))
+        .arg("--");
+    #[cfg(feature = "embedded-tui")]
+    launch.arg(tui.0.join("pocket-tui"));
+    #[cfg(not(feature = "embedded-tui"))]
+    {
+        let project = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .context("Project directory")?;
+        launch.arg("bun").arg(project.join("src/index.ts"));
+    }
+    let status = launch
         .arg(&folder)
         .env("CUTE_SOCKET", &socket)
         .env("CUTE_SSH_URI", &uri)
@@ -535,6 +588,26 @@ async fn main() -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(feature = "embedded-tui")]
+    #[test]
+    fn bundled_tui_is_private_complete_and_removed_on_drop() {
+        let tui = ExtractedTui::extract().unwrap();
+        let directory = tui.0.clone();
+        let executable = directory.join("pocket-tui");
+        assert_eq!(
+            std::fs::metadata(&directory).unwrap().permissions().mode() & 0o777,
+            0o700
+        );
+        assert_eq!(
+            std::fs::metadata(&executable).unwrap().permissions().mode() & 0o777,
+            0o700
+        );
+        assert_eq!(std::fs::read(executable).unwrap(), TUI_BINARY);
+        drop(tui);
+        assert!(!directory.exists());
+    }
+
     #[test]
     fn authentication_and_terminal_boundaries() {
         let key = PrivateKey::random(&mut rand::rng(), Algorithm::Ed25519).unwrap();
