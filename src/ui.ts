@@ -1,6 +1,7 @@
 import {
   BoxRenderable, TextRenderable, SelectRenderable, SelectRenderableEvents,
   InputRenderable, InputRenderableEvents, ScrollBoxRenderable, ImageRenderable,
+  TabSelectRenderable, TabSelectRenderableEvents,
   type CliRenderer, type KeyEvent, bold, fg, t,
 } from "@opentui/core";
 import { QRCodeRenderable } from "@opentui/qrcode";
@@ -22,7 +23,7 @@ export function buildApp(renderer: CliRenderer, initialPath: string, bookmarksFi
   let clipboard: { path: string; cut: boolean } | undefined;
   let modal: BoxRenderable | undefined, prompt: InputRenderable | undefined;
   let modalMessage: TextRenderable | undefined;
-  let modalHeight = 34;
+  let modalHeight = 34, modalCompact = false;
   let previewFocused = false, previewReady = false;
   let player: ReturnType<typeof Bun.spawn> | undefined;
   let playingPath: string | undefined;
@@ -111,9 +112,15 @@ export function buildApp(renderer: CliRenderer, initialPath: string, bookmarksFi
     previewPanel.visible = !narrow || previewFocused;
     previewPanel.width = narrow ? "100%" : "48%";
     if (modal) {
-      modal.width = Math.max(20, Math.min(76, renderer.width - 2)); modal.height = Math.min(modalHeight, renderer.height);
+      const width = Math.max(1, Math.min(modalCompact ? 60 : 76, renderer.width - 2));
+      const height = Math.min(modalHeight, renderer.height);
+      modal.width = width; modal.height = height;
+      modal.left = modalCompact ? Math.floor((renderer.width - width) / 2) : 0;
+      modal.top = modalCompact ? Math.floor((renderer.height - height) / 2) : 0;
       const picker = modal.findDescendantById("bookmark-picker");
-      if (picker) picker.height = Math.max(1, Math.min(modalHeight, renderer.height) - 3);
+      if (picker) picker.height = Math.max(1, height - 3);
+      const choices = modal.findDescendantById("confirm-choices") as TabSelectRenderable | undefined;
+      if (choices) { choices.tabWidth = Math.max(1, Math.min(17, Math.floor((width - 2) / 2))); choices.width = choices.tabWidth * 2; }
     }
   }
   renderer.on("resize", layout);
@@ -221,29 +228,54 @@ export function buildApp(renderer: CliRenderer, initialPath: string, bookmarksFi
     closing.destroyRecursively();
     list.focus();
   }
-  function dialog(title: string, content: string) {
+  function dialog(title: string, content: string, compact = false) {
     if (searchInput.visible) finishSearch(false);
-    closeModal(); list.blur(); preview.blur(); modalHeight = 34;
+    closeModal(); list.blur(); preview.blur(); modalCompact = compact; modalHeight = compact ? 6 : 34;
     modal = new BoxRenderable(renderer, { id: "dialog", position: "absolute", top: 0, left: 0, width: Math.max(20, Math.min(76, renderer.width - 2)), height: Math.min(34, renderer.height), zIndex: 50, border: true, borderStyle: "rounded", borderColor: C.peach, title: ` ${title} `, titleColor: C.peach, backgroundColor: C.panel, flexDirection: "column" });
     app.add(modal);
-    const scroll = new ScrollBoxRenderable(renderer, { flexGrow: 1, minHeight: 0 });
+    const scroll = new ScrollBoxRenderable(renderer, { id: "dialog-content", flexGrow: 1, minHeight: 0, scrollX: !compact });
     modal.add(scroll);
     if (content) scroll.add(new TextRenderable(renderer, { content, fg: C.ink, wrapMode: "word" }));
     scroll.focus();
-    modalMessage = new TextRenderable(renderer, { content: " Esc close", height: 1, fg: C.peach, onMouseDown: closeModal });
+    modalMessage = new TextRenderable(renderer, { content: " Esc close", height: 1, fg: C.peach, onMouseDown: event => { event.preventDefault(); if (!busy) closeModal(); } });
     modal.add(modalMessage);
+    layout();
     return scroll;
   }
   function ask(title: string, description: string, value: string, action: (value: string) => Promise<unknown>) {
-    dialog(title, description);
-    prompt = new InputRenderable(renderer, { value, placeholder: "Type here, Enter confirms", textColor: C.ink, backgroundColor: C.selected, focusedBackgroundColor: C.selected, cursorColor: C.peach });
-    modal!.add(prompt);
+    dialog(title, description, true);
+    prompt = new InputRenderable(renderer, { id: "dialog-input", value, placeholder: "Type here, Enter confirms", textColor: C.ink, backgroundColor: C.selected, focusedBackgroundColor: C.selected, cursorColor: C.peach });
+    modal!.add(prompt, 1);
     prompt.on(InputRenderableEvents.ENTER, (answer: string) => {
       if (busy) return;
       busy = true;
       run(async () => { try { await action(answer); closeModal(); } finally { busy = false; } });
     });
     prompt.focus();
+  }
+  function confirmTrash(description: string, action: () => Promise<unknown>) {
+    const scroll = dialog("Move to trash", description, true);
+    const choices = new TabSelectRenderable(renderer, {
+      id: "confirm-choices", alignSelf: "center", showDescription: false, showUnderline: false, showScrollArrows: false, wrapSelection: true,
+      options: [{ name: "Cancel", description: "", value: false }, { name: "Move to trash", description: "", value: true }],
+      backgroundColor: C.panel, textColor: C.ink, focusedBackgroundColor: C.panel, focusedTextColor: C.ink,
+      selectedBackgroundColor: C.selected, selectedTextColor: C.ink,
+      keyBindings: [{ name: "tab", action: "move-right" }, { name: "tab", shift: true, action: "move-left" }],
+      onKeyDown: key => { if (key.name === "up" || key.name === "down") { key.preventDefault(); scroll.scrollBy(key.name === "up" ? -1 : 1); } },
+      onMouseDown: event => {
+        event.preventDefault(); if (busy || event.button !== 0) return;
+        const index = Math.floor((event.x - choices.x) / choices.tabWidth);
+        if (index >= 0 && index < 2) { choices.setSelectedIndex(index); choices.selectCurrent(); }
+      },
+    });
+    choices.on(TabSelectRenderableEvents.ITEM_SELECTED, (_index, option) => {
+      if (busy) return;
+      if (!option.value) { closeModal(); return; }
+      busy = true;
+      run(async () => { try { await action(); closeModal(); } finally { busy = false; } });
+    });
+    modal!.add(choices, 1); layout(); choices.focus();
+    modalMessage!.content = " ← → / Tab choose · Enter confirm · Esc cancel";
   }
   function search() {
     previewFocused = false; layout();
@@ -326,7 +358,7 @@ export function buildApp(renderer: CliRenderer, initialPath: string, bookmarksFi
   }
   function renameSelected() {
     const entry = selected(); if (!entry) return;
-    ask("Rename", `Rename ${clean(entry.name)}. Existing names are protected.`, entry.name, async name => {
+    ask("Rename", `Rename ${label(entry.name)}. Existing names are protected.`, entry.name, async name => {
       const path = await renameEntry(entry.path, name); await load(cwd, path); say(`Renamed to ${name}.`);
     });
   }
@@ -336,8 +368,7 @@ export function buildApp(renderer: CliRenderer, initialPath: string, bookmarksFi
   }
   function trashSelected() {
     const entry = selected(); if (!entry) return;
-    ask("Move to trash", `Move ${clean(entry.name)} to the system trash?\nType trash to confirm. Restore it with your desktop file manager.`, "", async answer => {
-      if (answer !== "trash") throw new Error("Type trash to confirm, or Esc to cancel.");
+    confirmTrash(`Move "${label(entry.name)}" to the system trash?\nRestore with your desktop file manager.`, async () => {
       if (!Bun.which("gio")) throw new Error("System trash needs gio. Nothing was removed.");
       const child = Bun.spawn(["gio", "trash", "--", entry.path], { stdout: "ignore", stderr: "pipe" });
       const error = await new Response(child.stderr).text();
@@ -360,7 +391,11 @@ export function buildApp(renderer: CliRenderer, initialPath: string, bookmarksFi
   }
   function onKey(key: KeyEvent) {
     if (busy) { key.preventDefault(); return; }
-    if (modal) { if (key.name === "escape") { key.preventDefault(); closeModal(); } return; }
+    if (modal) {
+      if (key.name === "escape") { key.preventDefault(); closeModal(); }
+      else (prompt ?? modal.findDescendantById("confirm-choices") ?? modal.findDescendantById("bookmark-picker") ?? modal.findDescendantById("dialog-content"))?.focus();
+      return;
+    }
     if (searchInput.focused) {
       if (key.name === "escape" || key.name === "tab") {
         key.preventDefault(); finishSearch(key.name === "escape");

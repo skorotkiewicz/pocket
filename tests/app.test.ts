@@ -1,8 +1,8 @@
 import { test, expect, spyOn } from "bun:test";
-import { mkdtemp, rm, mkdir, symlink, lstat, rename } from "node:fs/promises";
+import { mkdtemp, rm, mkdir, symlink, lstat, rename, chmod } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { ImageRenderable, InputRenderable, SelectRenderable } from "@opentui/core";
+import { ImageRenderable, InputRenderable, SelectRenderable, TabSelectRenderable } from "@opentui/core";
 import { createTestRenderer } from "@opentui/core/testing";
 import { buildApp } from "../src/ui";
 import { childPath, create, copyInto, moveInto, renameEntry, entries, textPreview, waveform, musicPreview } from "../src/files";
@@ -351,5 +351,110 @@ test("x queues a cut, p moves safely and clears it, and y still copies repeatedl
     await app.load(another); await paste("Copy pasted.");
     expect(await Bun.file(join(another, "hello.txt")).text()).toContain("Hello, pocket!");
     expect(await Bun.file(target).exists()).toBe(true);
+  } finally { setup.renderer.destroy(); await rm(directory, { recursive: true, force: true }); }
+});
+
+test("trash uses a centered Cancel-first confirmation with keyboard, mouse and failure recovery", async () => {
+  const directory = await fixture(), source = join(directory, "hello.txt");
+  const setup = await createTestRenderer({ width: 110, height: 30 });
+  const oldPath = process.env.PATH;
+  async function waitFor(check: () => boolean | Promise<boolean>) {
+    for (let attempt = 0; attempt < 100; attempt++) {
+      await Bun.sleep(10); await setup.renderOnce(); if (await check()) return;
+    }
+    throw new Error("Trash confirmation did not finish.");
+  }
+  try {
+    const bin = join(directory, "bin"), trash = join(directory, "trash"), calls = join(directory, "calls"), fail = join(directory, "fail");
+    await mkdir(bin); await mkdir(trash); await Bun.write(fail, "fail");
+    const gio = join(bin, "gio");
+    await Bun.write(gio, `#!/bin/sh
+root=$(dirname -- "$(dirname -- "$0")")
+printf '%s\\n' "$@" >> "$root/calls"
+if [ -e "$root/fail" ]; then printf 'Trash failed\\n' >&2; exit 1; fi
+mv -- "$3" "$root/trash/"
+`);
+    await chmod(gio, 0o700); process.env.PATH = `${bin}:${oldPath ?? ""}`;
+    const app = buildApp(setup.renderer, directory, ":memory:"); await app.ready;
+    app.list.setSelectedIndex(app.list.options.findIndex(option => option.value.path === source));
+    setup.mockInput.pressKey("d"); await setup.renderOnce();
+    const modal = setup.renderer.root.findDescendantById("dialog")!;
+    let choices = setup.renderer.root.findDescendantById("confirm-choices") as TabSelectRenderable;
+    expect(modal.height).toBe(6); expect(modal.width).toBe(60);
+    expect(modal.x).toBe(25); expect(modal.y).toBe(12);
+    expect(choices.getSelectedIndex()).toBe(0);
+    expect(setup.renderer.root.findDescendantById("dialog-input")).toBeUndefined();
+    expect(setup.captureCharFrame()).toContain('Move "hello.txt"');
+    expect(setup.captureCharFrame()).toContain("Restore with your desktop file manager");
+    await setup.mockMouse.click(app.list.x + 1, app.list.y + 1);
+    setup.mockInput.pressEnter();
+    expect(setup.renderer.root.findDescendantById("dialog")).toBeUndefined();
+    expect(await Bun.file(calls).exists()).toBe(false);
+    expect(await Bun.file(source).exists()).toBe(true);
+    setup.mockInput.pressKey("d"); setup.mockInput.pressEscape(); await Bun.sleep(60);
+    expect(setup.renderer.root.findDescendantById("dialog")).toBeUndefined();
+    setup.mockInput.pressKey("d"); await setup.renderOnce();
+    choices = setup.renderer.root.findDescendantById("confirm-choices") as TabSelectRenderable;
+    await setup.mockMouse.click(choices.x + 1, choices.y);
+    expect(setup.renderer.root.findDescendantById("dialog")).toBeUndefined();
+    expect(await Bun.file(calls).exists()).toBe(false);
+    setup.mockInput.pressKey("d"); await setup.renderOnce();
+    choices = setup.renderer.root.findDescendantById("confirm-choices") as TabSelectRenderable;
+    setup.mockInput.pressTab({ shift: true }); expect(choices.getSelectedIndex()).toBe(1);
+    setup.mockInput.pressArrow("left"); expect(choices.getSelectedIndex()).toBe(0);
+    setup.mockInput.pressTab(); expect(choices.getSelectedIndex()).toBe(1);
+    setup.resize(40, 14); await setup.renderOnce();
+    expect(choices.width).toBeLessThanOrEqual(36);
+    expect(setup.renderer.root.findDescendantById("dialog")!.x).toBe(1);
+    setup.mockInput.pressEnter();
+    await waitFor(() => setup.captureCharFrame().includes("Trash failed"));
+    expect(setup.renderer.root.findDescendantById("dialog")).toBeDefined();
+    expect(await Bun.file(source).exists()).toBe(true);
+    expect((await Bun.file(calls).text()).trim().split("\n")).toEqual(["trash", "--", source]);
+    await rename(fail, join(directory, "disabled"));
+    setup.mockInput.pressEnter();
+    await waitFor(() => !setup.renderer.root.findDescendantById("dialog"));
+    expect(await Bun.file(source).exists()).toBe(false);
+    expect(await Bun.file(join(trash, "hello.txt")).text()).toContain("Hello, pocket!");
+    const mouseFile = join(directory, "mouse.txt"); await Bun.write(mouseFile, "mouse confirmation");
+    await app.load(directory, mouseFile); setup.mockInput.pressKey("d"); await setup.renderOnce();
+    choices = setup.renderer.root.findDescendantById("confirm-choices") as TabSelectRenderable;
+    await setup.mockMouse.click(choices.x + choices.tabWidth + 1, choices.y);
+    await waitFor(() => !setup.renderer.root.findDescendantById("dialog"));
+    expect(await Bun.file(mouseFile).exists()).toBe(false);
+    expect(await Bun.file(join(trash, "mouse.txt")).text()).toBe("mouse confirmation");
+  } finally {
+    if (oldPath === undefined) delete process.env.PATH; else process.env.PATH = oldPath;
+    setup.renderer.destroy(); await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("new file, new folder, rename and go-to prompts are compact, centered and keep validation", async () => {
+  const directory = await fixture();
+  const setup = await createTestRenderer({ width: 110, height: 30 });
+  try {
+    const app = buildApp(setup.renderer, directory, ":memory:"); await app.ready;
+    app.list.setSelectedIndex(app.list.options.findIndex(option => option.value.name === "hello.txt"));
+    for (const key of ["n", "N", "r", "g"]) {
+      setup.mockInput.pressKey(key); await setup.renderOnce();
+      const modal = setup.renderer.root.findDescendantById("dialog")!;
+      const input = setup.renderer.root.findDescendantById("dialog-input") as InputRenderable;
+      expect(modal.height).toBe(6); expect(modal.width).toBe(60);
+      expect(modal.x).toBe(25); expect(modal.y).toBe(12);
+      expect(input.focused).toBe(true);
+      expect(input.y).toBeLessThan(modal.y + modal.height - 2);
+      setup.resize(54, 18); await setup.renderOnce();
+      expect(modal.width).toBe(52); expect(modal.x).toBe(1); expect(modal.y).toBe(6);
+      setup.mockInput.pressEscape(); await Bun.sleep(60); setup.resize(110, 30);
+    }
+    setup.mockInput.pressKey("n"); setup.mockInput.pressEnter(); await Bun.sleep(20); await setup.renderOnce();
+    expect(setup.renderer.root.findDescendantById("dialog")).toBeDefined();
+    expect(setup.captureCharFrame()).toContain("Use a single file name");
+    setup.mockInput.pressEscape(); await Bun.sleep(60);
+    app.help(); await setup.renderOnce();
+    expect(setup.renderer.root.findDescendantById("dialog")!.height).toBe(30);
+    expect(setup.renderer.root.findDescendantById("dialog")!.x).toBe(0);
+    app.share(); await setup.renderOnce();
+    expect(setup.renderer.root.findDescendantById("dialog")!.height).toBe(30);
   } finally { setup.renderer.destroy(); await rm(directory, { recursive: true, force: true }); }
 });
