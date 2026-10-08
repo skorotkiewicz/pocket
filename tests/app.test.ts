@@ -1,8 +1,8 @@
 import { test, expect, spyOn } from "bun:test";
-import { mkdtemp, rm, mkdir, symlink, lstat } from "node:fs/promises";
+import { mkdtemp, rm, mkdir, symlink, lstat, rename } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { ImageRenderable, InputRenderable } from "@opentui/core";
+import { ImageRenderable, InputRenderable, SelectRenderable } from "@opentui/core";
 import { createTestRenderer } from "@opentui/core/testing";
 import { buildApp } from "../src/ui";
 import { childPath, create, copyInto, renameEntry, entries, textPreview, waveform, musicPreview } from "../src/files";
@@ -47,7 +47,7 @@ test("OpenTUI renders, navigates, filters, opens help and creates files", async 
   const directory = await fixture();
   const setup = await createTestRenderer({ width: 110, height: 30 });
   try {
-    const app = buildApp(setup.renderer, directory);
+    const app = buildApp(setup.renderer, directory, ":memory:");
     await app.ready;
     await setup.renderOnce();
     expect(setup.captureCharFrame()).toContain("pocket");
@@ -105,7 +105,7 @@ test("image previews decode to terminal blocks and music previews read real tags
   try {
     const png = join(directory, "pixel.png");
     await Bun.write(png, Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=", "base64"));
-    const app = buildApp(setup.renderer, directory); await app.ready;
+    const app = buildApp(setup.renderer, directory, ":memory:"); await app.ready;
     await Bun.sleep(80);
     const image = setup.renderer.root.findDescendantById("preview-image") as ImageRenderable;
     await image.loadPromise; await setup.renderOnce();
@@ -129,7 +129,7 @@ test("Enter copies ready preview text after keyboard or mouse focus and reports 
   const setup = await createTestRenderer({ width: 90, height: 26 });
   const copy = spyOn(setup.renderer, "copyToClipboardOSC52").mockReturnValue(true);
   try {
-    const app = buildApp(setup.renderer, directory); await app.ready;
+    const app = buildApp(setup.renderer, directory, ":memory:"); await app.ready;
     app.list.setSelectedIndex(app.list.options.findIndex(option => option.value.name === "hello.txt"));
     setup.mockInput.pressTab();
     setup.mockInput.pressEnter();
@@ -162,7 +162,7 @@ test("selecting the pairing password copies only the selection on mouse release"
   process.env.CUTE_SSH_URI = "ssh://pocket@127.0.0.1:2222";
   process.env.CUTE_PAIRING = password;
   try {
-    const app = buildApp(setup.renderer, directory); await app.ready;
+    const app = buildApp(setup.renderer, directory, ":memory:"); await app.ready;
     app.share(); await setup.renderOnce();
     const lines = setup.captureCharFrame().split("\n");
     const y = lines.findIndex(line => line.includes(password));
@@ -194,7 +194,7 @@ test("inline search keeps results visible, accepts Enter, and clears on Escape",
   const directory = await fixture();
   const setup = await createTestRenderer({ width: 110, height: 30 });
   try {
-    const app = buildApp(setup.renderer, directory); await app.ready;
+    const app = buildApp(setup.renderer, directory, ":memory:"); await app.ready;
     setup.mockInput.pressKey("/"); await setup.renderOnce();
     const input = setup.renderer.root.findDescendantById("search") as InputRenderable;
     expect(setup.renderer.root.findDescendantById("dialog")).toBeUndefined();
@@ -232,4 +232,56 @@ test("inline search keeps results visible, accepts Enter, and clears on Escape",
     expect(input.value).toBe("");
     expect(setup.captureCharFrame()).toContain("folder/");
   } finally { setup.renderer.destroy(); await rm(directory, { recursive: true, force: true }); }
+});
+
+test("bookmarks persist without duplicates and support keyboard and sidebar jumps", async () => {
+  const directory = await fixture(), folder = join(directory, "folder");
+  const database = join(directory, ".bookmarks.sqlite");
+  const setup = await createTestRenderer({ width: 110, height: 30 });
+  let reopened: Awaited<ReturnType<typeof createTestRenderer>> | undefined;
+  try {
+    const app = buildApp(setup.renderer, directory, database); await app.ready;
+    setup.mockInput.pressKey("b"); await setup.renderOnce();
+    expect(setup.captureCharFrame()).toContain("No bookmarks yet");
+    expect(setup.renderer.root.findDescendantById("dialog")!.height).toBe(6);
+    setup.mockInput.pressEscape(); await Bun.sleep(60);
+    setup.mockInput.pressKey("B"); setup.mockInput.pressKey("B");
+    setup.mockInput.pressKey("b"); await setup.renderOnce();
+    let picker = setup.renderer.root.findDescendantById("bookmark-picker") as SelectRenderable;
+    expect(picker.options.length).toBe(1);
+    expect(setup.renderer.root.findDescendantById("dialog")!.height).toBe(4);
+    setup.mockInput.pressEscape(); await Bun.sleep(60);
+    await app.load(folder); setup.mockInput.pressKey("B"); await app.load(directory);
+    setup.mockInput.pressKey("b"); await setup.renderOnce();
+    picker = setup.renderer.root.findDescendantById("bookmark-picker") as SelectRenderable;
+    expect(picker.options.map(option => option.value)).toEqual([directory, folder]);
+    picker.setSelectedIndex(1); setup.mockInput.pressEnter(); await Bun.sleep(40);
+    expect(app.cwd).toBe(folder);
+    expect(setup.renderer.root.findDescendantById("dialog")).toBeUndefined();
+    await setup.renderOnce();
+    const saved = setup.renderer.root.findDescendantById("bookmark-0")!;
+    await setup.mockMouse.click(saved.x + 2, saved.y); await Bun.sleep(40);
+    expect(app.cwd).toBe(directory);
+    setup.renderer.destroy();
+    reopened = await createTestRenderer({ width: 54, height: 18 });
+    const next = buildApp(reopened.renderer, directory, database); await next.ready;
+    reopened.mockInput.pressKey("b"); await reopened.renderOnce();
+    picker = reopened.renderer.root.findDescendantById("bookmark-picker") as SelectRenderable;
+    expect(picker.options.map(option => option.value)).toEqual([directory, folder]);
+    reopened.resize(54, 12); await reopened.renderOnce();
+    expect(reopened.renderer.root.findDescendantById("dialog")!.height).toBe(5);
+    await reopened.mockMouse.click(picker.x + 2, picker.y + 1); await Bun.sleep(40);
+    expect(next.cwd).toBe(folder);
+    await next.load(directory);
+    await rename(folder, join(directory, "moved-folder"));
+    reopened.mockInput.pressKey("b"); await reopened.renderOnce();
+    picker = reopened.renderer.root.findDescendantById("bookmark-picker") as SelectRenderable;
+    picker.setSelectedIndex(1); reopened.mockInput.pressEnter(); await Bun.sleep(40); await reopened.renderOnce();
+    expect(next.cwd).toBe(directory);
+    expect(reopened.renderer.root.findDescendantById("dialog")).toBeDefined();
+    expect(reopened.captureCharFrame()).toContain("ENOENT");
+  } finally {
+    setup.renderer.destroy(); reopened?.renderer.destroy();
+    await rm(directory, { recursive: true, force: true });
+  }
 });

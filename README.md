@@ -3,6 +3,7 @@
 A cat-sized OpenTUI file manager. Peach labels, mint selection, compact panels, clickable places and a keyboard guide built into `?`.
 
 - Browse folders, filter names, show hidden files and scroll text previews.
+- Save folder bookmarks with `B`. Press `b` to jump to one, or click it in the places sidebar.
 - Preview PNG, JPEG, WebP and GIF using OpenTUI's native image decoder. tmux uses terminal blocks, so images also work over SSH.
 - Read music tags and a real waveform. Space starts or stops playback with ffplay.
 - Edit with `$EDITOR`, with `vi` as the fallback. The file manager restores itself when the editor exits.
@@ -37,6 +38,8 @@ bun src/index.ts ~/Documents
 ```
 
 The sidebar disappears on smaller terminals. Below 72 columns, Tab switches between the file list and preview. Search uses a one-line field above the file list, so matching files remain visible while you type. With the preview focused, Enter copies its displayed text using OSC 52. Selecting text with the mouse also copies it when you release the button, including the pairing password in the SSH dialog. Your terminal must allow clipboard writes.
+
+Bookmarks persist in `$XDG_DATA_HOME/pocket/bookmarks.sqlite`, or `~/.local/share/pocket/bookmarks.sqlite` when that variable is unset. Saving a folder twice does not create duplicates. The bookmark picker also works on narrow terminals where the sidebar is hidden.
 
 ## Join from another device
 
@@ -88,6 +91,8 @@ Headless mode prints the pairing password to standard output. Keep that output p
 | Esc | Close dialog or clear filter |
 | . | Show hidden files |
 | g | Go to a folder |
+| B | Bookmark the current folder |
+| b | Choose a bookmark and press Enter to jump |
 | e | Edit with `$EDITOR` |
 | n / Shift+n | New file / folder |
 | r | Rename |

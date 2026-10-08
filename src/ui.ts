@@ -7,17 +7,21 @@ import { QRCodeRenderable } from "@opentui/qrcode";
 import { basename, dirname, join, resolve } from "node:path";
 import { homedir } from "node:os";
 import { stat } from "node:fs/promises";
+import { mkdirSync } from "node:fs";
+import { Database } from "bun:sqlite";
 import { entries, clean, kind, size, textPreview, musicPreview, create, renameEntry, copyInto, type Entry } from "./files";
 
 const C = { bg: "#202923", panel: "#25312a", ink: "#f5ead7", muted: "#acb9a7", mint: "#a8d5b5", peach: "#efb896", line: "#526854", selected: "#455d49", error: "#f2a799" };
 const label = (text: string) => clean(text).replace(/[\r\n\t]/g, "�");
 const icon = (entry: Entry) => entry.directory ? "+" : kind(entry.path) === "music" ? "♪" : kind(entry.path) === "image" ? "▧" : "·";
 
-export function buildApp(renderer: CliRenderer, initialPath: string) {
+export function buildApp(renderer: CliRenderer, initialPath: string, bookmarksFile = join(process.env.XDG_DATA_HOME || join(homedir(), ".local/share"), "pocket", "bookmarks.sqlite")) {
+  let bookmarksDB: Database | undefined;
   let cwd = resolve(initialPath), all: Entry[] = [], hidden = false, query = "", busy = false;
   let previewVersion = 0, loadVersion = 0, disposed = false, clipboard: string | undefined;
   let modal: BoxRenderable | undefined, prompt: InputRenderable | undefined;
   let modalMessage: TextRenderable | undefined;
+  let modalHeight = 34;
   let previewFocused = false, previewReady = false;
   let player: ReturnType<typeof Bun.spawn> | undefined;
   let playingPath: string | undefined;
@@ -34,7 +38,8 @@ export function buildApp(renderer: CliRenderer, initialPath: string) {
   for (const [label, path] of [["⌂  Home", homedir()], ["↓  Downloads", join(homedir(), "Downloads")], ["▤  Documents", join(homedir(), "Documents")], ["/  Filesystem", "/"], ["·  Started here", cwd]] as const) {
     places.add(new TextRenderable(renderer, { content: ` ${label}`, height: 1, fg: C.muted, onMouseDown: () => { if (!modal && !busy) run(() => load(path)); } }));
   }
-  places.add(new BoxRenderable(renderer, { flexGrow: 1 }));
+  const bookmarkPlaces = new ScrollBoxRenderable(renderer, { id: "saved-places", flexGrow: 1, minHeight: 0 });
+  places.add(bookmarkPlaces);
   places.add(new TextRenderable(renderer, { content: "  /\\_/\\\n ( o.o )\n  > ^ <\n\n ?  all shortcuts\n s  share session", fg: C.peach, flexShrink: 0 }));
   const listPanel = new BoxRenderable(renderer, { flexGrow: 1, flexBasis: 0, minWidth: 0, border: true, borderStyle: "rounded", borderColor: C.mint, title: " files ", titleColor: C.mint, flexDirection: "column" });
   body.add(listPanel);
@@ -84,7 +89,7 @@ export function buildApp(renderer: CliRenderer, initialPath: string) {
   app.add(toolbar);
   for (const [label, action] of [
     [" Enter open ", () => openSelected()], [" e edit ", () => edit()],
-    [" / find ", () => search()], [" n new ", () => newEntry(false)],
+    [" / find ", () => search()], [" n new ", () => newEntry(false)], [" b marks ", () => showBookmarks()],
     [" s SSH ", () => share()], [" ? help ", () => help()],
   ] as const) toolbar.add(new TextRenderable(renderer, { content: label, fg: C.ink, onMouseDown: () => { if (!modal && !busy) run(action); } }));
 
@@ -104,7 +109,11 @@ export function buildApp(renderer: CliRenderer, initialPath: string) {
     listPanel.visible = !narrow || !previewFocused;
     previewPanel.visible = !narrow || previewFocused;
     previewPanel.width = narrow ? "100%" : "48%";
-    if (modal) { modal.width = Math.max(20, Math.min(76, renderer.width - 2)); modal.height = Math.min(34, renderer.height); }
+    if (modal) {
+      modal.width = Math.max(20, Math.min(76, renderer.width - 2)); modal.height = Math.min(modalHeight, renderer.height);
+      const picker = modal.findDescendantById("bookmark-picker");
+      if (picker) picker.height = Math.max(1, Math.min(modalHeight, renderer.height) - 3);
+    }
   }
   renderer.on("resize", layout);
   layout();
@@ -212,7 +221,7 @@ export function buildApp(renderer: CliRenderer, initialPath: string) {
   }
   function dialog(title: string, content: string) {
     if (searchInput.visible) finishSearch(false);
-    closeModal(); list.blur(); preview.blur();
+    closeModal(); list.blur(); preview.blur(); modalHeight = 34;
     modal = new BoxRenderable(renderer, { id: "dialog", position: "absolute", top: 0, left: 0, width: Math.max(20, Math.min(76, renderer.width - 2)), height: Math.min(34, renderer.height), zIndex: 50, border: true, borderStyle: "rounded", borderColor: C.peach, title: ` ${title} `, titleColor: C.peach, backgroundColor: C.panel, flexDirection: "column" });
     app.add(modal);
     const scroll = new ScrollBoxRenderable(renderer, { flexGrow: 1, minHeight: 0 });
@@ -246,6 +255,64 @@ export function buildApp(renderer: CliRenderer, initialPath: string) {
     list.focus();
     say(query ? `Filter: ${query}. / changes it, Esc clears it.` : "Search closed.");
   }
+  function savedBookmarks() {
+    if (!bookmarksDB) {
+      if (bookmarksFile !== ":memory:") mkdirSync(dirname(bookmarksFile), { recursive: true, mode: 0o700 });
+      bookmarksDB = new Database(bookmarksFile, { create: true, strict: true });
+      bookmarksDB.exec("PRAGMA busy_timeout = 1000; CREATE TABLE IF NOT EXISTS bookmarks (path TEXT PRIMARY KEY NOT NULL) STRICT");
+    }
+    return bookmarksDB.query<{ path: string }, []>("SELECT path FROM bookmarks ORDER BY path COLLATE NOCASE").all().map(row => row.path);
+  }
+  function refreshBookmarks() {
+    const paths = savedBookmarks();
+    for (const child of bookmarkPlaces.getChildren()) child.destroyRecursively();
+    bookmarkPlaces.add(new TextRenderable(renderer, { content: " * bookmarks", height: 1, fg: C.peach, selectable: false, onMouseDown: event => { event.preventDefault(); if (!modal && !busy) run(showBookmarks); } }));
+    paths.forEach((path, index) => bookmarkPlaces.add(new TextRenderable(renderer, {
+      id: `bookmark-${index}`, content: ` * ${label(basename(path) || path)}`, height: 1, fg: C.mint, truncate: true, selectable: false,
+      onMouseDown: event => { event.preventDefault(); if (!modal && !busy) run(() => jumpBookmark(path)); },
+    })));
+    bookmarkPlaces.add(new TextRenderable(renderer, { content: " + save folder (B)", height: 1, fg: C.muted, selectable: false, onMouseDown: event => { event.preventDefault(); if (!modal && !busy) run(saveBookmark); } }));
+  }
+  function saveBookmark() {
+    savedBookmarks();
+    const added = bookmarksDB!.query("INSERT OR IGNORE INTO bookmarks (path) VALUES (?)").run(cwd).changes;
+    refreshBookmarks();
+    say(added ? `Bookmarked ${cwd}. Press b to jump back.` : "This folder is already bookmarked. Press b to jump.");
+  }
+  async function jumpBookmark(path: string) {
+    busy = true;
+    try {
+      await load(path);
+      closeModal(); previewFocused = false; list.focus(); layout();
+      listPanel.borderColor = C.mint; previewPanel.borderColor = C.line;
+      say(`Opened bookmark: ${path}`);
+    } finally { busy = false; }
+  }
+  function showBookmarks() {
+    const paths = savedBookmarks();
+    refreshBookmarks();
+    const scroll = dialog("Bookmarks", paths.length ? "" : "No bookmarks yet.\nPress Shift+B to save the current folder.");
+    modalHeight = paths.length ? paths.length + 3 : 6;
+    modal!.height = Math.min(modalHeight, renderer.height);
+    if (!paths.length) return;
+    const rows = Math.max(1, Math.min(paths.length, renderer.height - 3));
+    const picker = new SelectRenderable(renderer, {
+      id: "bookmark-picker", height: rows, showDescription: false, showScrollIndicator: true,
+      options: paths.map(path => ({ name: ` ${label(basename(path) || path)}  ${label(path.replace(homedir(), "~"))}`, description: "", value: path })),
+      textColor: C.ink, backgroundColor: C.panel, focusedBackgroundColor: C.panel, focusedTextColor: C.ink,
+      selectedBackgroundColor: C.selected, selectedTextColor: C.ink,
+      onMouseDown: (event) => {
+        if (busy) return;
+        const visible = Math.max(1, picker.height);
+        const offset = Math.max(0, Math.min(picker.getSelectedIndex() - Math.floor(visible / 2), paths.length - visible));
+        const path = paths[offset + event.y - picker.y];
+        if (path) run(() => jumpBookmark(path));
+      },
+    });
+    picker.on(SelectRenderableEvents.ITEM_SELECTED, (_index, option) => run(() => jumpBookmark(option.value)));
+    scroll.add(picker); picker.focus();
+    modalMessage!.content = " Enter open · Esc close";
+  }
   function newEntry(folder: boolean) {
     ask(folder ? "New folder" : "New file", "Existing files are never overwritten.", "", async name => {
       const path = await create(cwd, name, folder); await load(cwd, path); say(`Created ${name}.`);
@@ -269,7 +336,7 @@ export function buildApp(renderer: CliRenderer, initialPath: string) {
     });
   }
   function help() {
-    dialog("A tiny field guide", `FILES\n↑ ↓ or j k  choose a file\nEnter / → / l  open folder or file\n← / h / Backspace  parent folder\nTab  files / preview, arrows scroll preview\nEnter in preview  copy displayed text to clipboard\nDrag over text  copy selection when released\n/  find in this folder    Esc  clear filter\n.  show hidden files     g  go to a path\nHome  first file         End  last file\n\nMAKE & EDIT\ne  edit with $EDITOR, defaults to vi\nn  new file             N  new folder\nr  rename               y  copy selected file or folder\np  paste a copy, no overwrite\nd  move to system trash, confirmation required\nSpace  play / stop music on the host\nF5  refresh folder\n\nSHARED SESSION\ns  SSH connection and QR code\nCtrl+B then %  split left / right\nCtrl+B then \"  split top / bottom\nCtrl+B then c  new shell tab\nCtrl+B then arrows  switch panes\nCtrl+B then n / p  next / previous tab\nCtrl+B then d  detach, leave session running\n\n?  this guide    q  close file manager\nSSH users share control and your OS permissions.`);
+    dialog("A tiny field guide", `FILES\n↑ ↓ or j k  choose a file\nEnter / → / l  open folder or file\n← / h / Backspace  parent folder\nTab  files / preview, arrows scroll preview\nEnter in preview  copy displayed text to clipboard\nDrag over text  copy selection when released\n/  find in this folder    Esc  clear filter\n.  show hidden files     g  go to a path\nHome  first file         End  last file\nB  bookmark current folder    b  jump to bookmark\n\nMAKE & EDIT\ne  edit with $EDITOR, defaults to vi\nn  new file             N  new folder\nr  rename               y  copy selected file or folder\np  paste a copy, no overwrite\nd  move to system trash, confirmation required\nSpace  play / stop music on the host\nF5  refresh folder\n\nSHARED SESSION\ns  SSH connection and QR code\nCtrl+B then %  split left / right\nCtrl+B then \"  split top / bottom\nCtrl+B then c  new shell tab\nCtrl+B then arrows  switch panes\nCtrl+B then n / p  next / previous tab\nCtrl+B then d  detach, leave session running\n\n?  this guide    q  close file manager\nSSH users share control and your OS permissions.`);
   }
   function share() {
     const uri = process.env.CUTE_SSH_URI;
@@ -291,6 +358,9 @@ export function buildApp(renderer: CliRenderer, initialPath: string) {
       return;
     }
     if (key.ctrl || key.meta || key.super) return;
+    if (key.name === "b" || key.name === "B") {
+      key.preventDefault(); run(key.shift || key.sequence === "B" ? saveBookmark : showBookmarks); return;
+    }
     if (key.name === "tab") {
       key.preventDefault(); previewFocused = !previewFocused;
       if (previewFocused) preview.focus(); else list.focus();
@@ -325,11 +395,11 @@ export function buildApp(renderer: CliRenderer, initialPath: string) {
   renderer.on("selection", copySelection);
   renderer.once("destroy", () => {
     disposed = true; ++loadVersion; ++previewVersion;
-    player?.kill();
+    player?.kill(); bookmarksDB?.close();
     renderer.off("resize", layout); renderer.keyInput.off("keypress", onKey);
     renderer.off("selection", copySelection);
   });
   list.focus();
-  const ready = load(cwd).catch(error => say(String(error), true));
+  const ready = load(cwd).then(() => { if (!disposed) refreshBookmarks(); }).catch(error => say(String(error), true));
   return { ready, load, list, help, share, get cwd() { return cwd; }, get playingPath() { return playingPath; } };
 }

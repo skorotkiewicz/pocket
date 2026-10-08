@@ -17,11 +17,12 @@ test.skipIf(process.env.POCKET_SSH_TEST !== "1")("two SSH clients share files, e
   try {
     const folder = join(directory, "files"); await mkdir(folder);
     await Bun.write(join(folder, "hello.txt"), "original\n");
+    const bookmarkedFolder = join(folder, "bookmarked"); await mkdir(bookmarkedFolder);
     const keygen = Bun.spawn(["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-f", join(directory, "client")]);
     expect(await keygen.exited).toBe(0);
     const editor = join(directory, "editor");
     await Bun.write(editor, '#!/bin/sh\nprintf "edited through SSH\\n" >> "$1"\n'); await chmod(editor, 0o700);
-    server = Bun.spawn([resolve("server/target/debug/cute-tui-server"), folder, "--headless", "--listen", "127.0.0.1:0", "--authorized-keys", join(directory, "client.pub"), "--state-dir", join(directory, "state")], { env: { ...process.env, EDITOR: editor }, stdout: "pipe", stderr: "pipe" });
+    server = Bun.spawn([resolve("server/target/debug/cute-tui-server"), folder, "--headless", "--listen", "127.0.0.1:0", "--authorized-keys", join(directory, "client.pub"), "--state-dir", join(directory, "state")], { env: { ...process.env, EDITOR: editor, XDG_DATA_HOME: directory }, stdout: "pipe", stderr: "pipe" });
     let log = "";
     const readLog = (async () => { for await (const chunk of server!.stdout as ReadableStream<Uint8Array>) log += new TextDecoder().decode(chunk); })();
     await waitFor(() => log.includes("Pairing password:"), "Server did not start");
@@ -48,6 +49,12 @@ test.skipIf(process.env.POCKET_SSH_TEST !== "1")("two SSH clients share files, e
     await Bun.write(askpass, '#!/bin/sh\nprintf "%s" "$PAIRING"\n'); await chmod(askpass, 0o700);
     const second = connect(["-o", "PreferredAuthentications=password", "-o", "PubkeyAuthentication=no"], { ...process.env, SSH_ASKPASS: askpass, SSH_ASKPASS_REQUIRE: "force", DISPLAY: ":0", PAIRING: password });
     await waitFor(() => second.output.text.includes("hello.txt"), "Password-authenticated client did not render");
+    first.client.terminal!.write("B\r");
+    await waitFor(async () => (await screen()).split("\n")[1]?.trim() === bookmarkedFolder, "Could not enter the folder to bookmark");
+    first.client.terminal!.write("Bb");
+    await waitFor(async () => (await screen()).includes("Bookmarks"), "Bookmark picker did not open over SSH");
+    first.client.terminal!.write("\r");
+    await waitFor(async () => (await screen()).split("\n")[1]?.trim() === folder, "Bookmark did not jump back to the original folder");
     first.client.terminal!.write("n");
     await waitFor(() => second.output.text.includes("New file"), "Dialog was not shared with the second client");
     first.client.terminal!.write("shared.txt\r");
