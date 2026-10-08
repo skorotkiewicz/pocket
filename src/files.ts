@@ -41,15 +41,25 @@ export async function copyInto(source: string, directory: string) {
   return target;
 }
 
+export async function moveInto(source: string, directory: string) {
+  const target = join(directory, basename(source));
+  if (resolve(source) === resolve(target)) throw new Error("Choose a different folder before pasting.");
+  return moveEntry(source, target);
+}
+
 export async function renameEntry(source: string, name: string) {
   const target = childPath(resolve(source, ".."), name);
   if (source === target) return target;
+  return moveEntry(source, target);
+}
+
+async function moveEntry(source: string, target: string) {
   try { await lstat(target); throw new Error("That name already exists."); }
   catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
   // GNU mv provides a no-clobber rename, including directories, without a race-prone overwrite.
   const child = Bun.spawn(["mv", "-nT", "--", source, target], { stdout: "ignore", stderr: "pipe" });
   const error = await new Response(child.stderr).text();
-  if (await child.exited) throw new Error(error || "Rename failed. GNU mv is required.");
+  if (await child.exited) throw new Error(error || "Move failed. GNU mv is required.");
   try { await lstat(source); throw new Error("That name already exists. Nothing was overwritten."); }
   catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
   return target;

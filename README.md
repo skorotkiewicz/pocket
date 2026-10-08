@@ -97,12 +97,15 @@ Headless mode prints the pairing password to standard output. Keep that output p
 | n / Shift+n | New file / folder |
 | r | Rename |
 | y, then p | Copy, then paste into the current folder |
+| x, then p | Cut, then move into the current folder without overwriting |
 | d | Move to system trash, with confirmation |
 | Space | Play / stop music |
 | F5 | Refresh |
 | s | Share SSH connection |
 | ? | All shortcuts |
 | q | Close the file manager pane |
+
+Cut leaves the original in place until you paste with `p`. A failed paste keeps the cut queued for retry; a successful move clears it. Copy with `y` stays available for repeated pastes.
 
 Tmux uses its normal prefix, Ctrl+B. Release it, then press `%` to split left/right, `"` to split top/bottom, `c` for a shell tab, arrows to switch panes, or `n` / `p` to switch tabs. `d` detaches your local terminal while the Rust server keeps running.
 

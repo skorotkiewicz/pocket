@@ -9,7 +9,7 @@ import { homedir } from "node:os";
 import { stat } from "node:fs/promises";
 import { mkdirSync } from "node:fs";
 import { Database } from "bun:sqlite";
-import { entries, clean, kind, size, textPreview, musicPreview, create, renameEntry, copyInto, type Entry } from "./files";
+import { entries, clean, kind, size, textPreview, musicPreview, create, renameEntry, copyInto, moveInto, type Entry } from "./files";
 
 const C = { bg: "#202923", panel: "#25312a", ink: "#f5ead7", muted: "#acb9a7", mint: "#a8d5b5", peach: "#efb896", line: "#526854", selected: "#455d49", error: "#f2a799" };
 const label = (text: string) => clean(text).replace(/[\r\n\t]/g, "�");
@@ -18,7 +18,8 @@ const icon = (entry: Entry) => entry.directory ? "+" : kind(entry.path) === "mus
 export function buildApp(renderer: CliRenderer, initialPath: string, bookmarksFile = join(process.env.XDG_DATA_HOME || join(homedir(), ".local/share"), "pocket", "bookmarks.sqlite")) {
   let bookmarksDB: Database | undefined;
   let cwd = resolve(initialPath), all: Entry[] = [], hidden = false, query = "", busy = false;
-  let previewVersion = 0, loadVersion = 0, disposed = false, clipboard: string | undefined;
+  let previewVersion = 0, loadVersion = 0, disposed = false;
+  let clipboard: { path: string; cut: boolean } | undefined;
   let modal: BoxRenderable | undefined, prompt: InputRenderable | undefined;
   let modalMessage: TextRenderable | undefined;
   let modalHeight = 34;
@@ -329,6 +330,10 @@ export function buildApp(renderer: CliRenderer, initialPath: string, bookmarksFi
       const path = await renameEntry(entry.path, name); await load(cwd, path); say(`Renamed to ${name}.`);
     });
   }
+  function queueFile(cut: boolean) {
+    const entry = selected(); clipboard = entry ? { path: entry.path, cut } : undefined;
+    say(clipboard ? `${cut ? "Cut" : "Copied"} ${basename(clipboard.path)}. Go to a folder and press p.` : "No file selected.");
+  }
   function trashSelected() {
     const entry = selected(); if (!entry) return;
     ask("Move to trash", `Move ${clean(entry.name)} to the system trash?\nType trash to confirm. Restore it with your desktop file manager.`, "", async answer => {
@@ -341,7 +346,7 @@ export function buildApp(renderer: CliRenderer, initialPath: string, bookmarksFi
     });
   }
   function help() {
-    dialog("A tiny field guide", `FILES\n↑ ↓ or j k  choose a file\nEnter / → / l  open folder or file\n← / h / Backspace  parent folder\nTab  files / preview, arrows scroll preview\nEnter in preview  copy displayed text to clipboard\nDrag over text  copy selection when released\n/  find in this folder    Esc  clear filter\n.  show hidden files     g  go to a path\nHome  first file         End  last file\nB  toggle folder bookmark    b  jump to bookmark\n\nMAKE & EDIT\ne  edit with $EDITOR, defaults to vi\nn  new file             N  new folder\nr  rename               y  copy selected file or folder\np  paste a copy, no overwrite\nd  move to system trash, confirmation required\nSpace  play / stop music on the host\nF5  refresh folder\n\nSHARED SESSION\ns  SSH connection and QR code\nCtrl+B then %  split left / right\nCtrl+B then \"  split top / bottom\nCtrl+B then c  new shell tab\nCtrl+B then arrows  switch panes\nCtrl+B then n / p  next / previous tab\nCtrl+B then d  detach, leave session running\n\n?  this guide    q  close file manager\nSSH users share control and your OS permissions.`);
+    dialog("A tiny field guide", `FILES\n↑ ↓ or j k  choose a file\nEnter / → / l  open folder or file\n← / h / Backspace  parent folder\nTab  files / preview, arrows scroll preview\nEnter in preview  copy displayed text to clipboard\nDrag over text  copy selection when released\n/  find in this folder    Esc  clear filter\n.  show hidden files     g  go to a path\nHome  first file         End  last file\nB  toggle folder bookmark    b  jump to bookmark\n\nMAKE & EDIT\ne  edit with $EDITOR, defaults to vi\nn  new file             N  new folder\nr  rename               y  copy selected file or folder\nx  cut selected file or folder\np  paste copy / move, no overwrite\nd  move to system trash, confirmation required\nSpace  play / stop music on the host\nF5  refresh folder\n\nSHARED SESSION\ns  SSH connection and QR code\nCtrl+B then %  split left / right\nCtrl+B then \"  split top / bottom\nCtrl+B then c  new shell tab\nCtrl+B then arrows  switch panes\nCtrl+B then n / p  next / previous tab\nCtrl+B then d  detach, leave session running\n\n?  this guide    q  close file manager\nSSH users share control and your OS permissions.`);
   }
   function share() {
     const uri = process.env.CUTE_SSH_URI;
@@ -386,8 +391,17 @@ export function buildApp(renderer: CliRenderer, initialPath: string, bookmarksFi
       e: edit, "/": search, n: () => newEntry(key.shift), N: () => newEntry(true), r: renameSelected, d: trashSelected,
       s: share, ".": () => { hidden = !hidden; filter(); },
       g: () => ask("Go to folder", "Absolute or relative path. ~ means your home.", cwd, async path => load(resolve(cwd, path.replace(/^~(?=\/|$)/, homedir())))),
-      y: () => { clipboard = selected()?.path; say(clipboard ? `Copied ${basename(clipboard)}. Go to a folder and press p.` : "No file selected."); },
-      p: async () => { if (!clipboard) throw new Error("Press y on a file first."); busy = true; try { const path = await copyInto(clipboard, cwd); await load(cwd, path); say("Copy pasted."); } finally { busy = false; } },
+      y: () => queueFile(false), x: () => queueFile(true),
+      p: async () => {
+        const item = clipboard; if (!item) throw new Error("Press y or x on a file first.");
+        busy = true;
+        try {
+          say(item.cut ? "Moving…" : "Copying…");
+          const path = await (item.cut ? moveInto(item.path, cwd) : copyInto(item.path, cwd));
+          if (item.cut) clipboard = undefined;
+          await load(cwd, path); say(item.cut ? "Move pasted." : "Copy pasted.");
+        } finally { busy = false; }
+      },
       left: () => load(dirname(cwd), cwd), h: () => load(dirname(cwd), cwd), backspace: () => load(dirname(cwd), cwd),
       right: openSelected, l: openSelected, space: toggleMusic, f5: () => load(cwd, selected()?.path),
       home: () => list.setSelectedIndex(0), end: () => list.setSelectedIndex(list.options.length - 1),

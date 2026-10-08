@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { ImageRenderable, InputRenderable, SelectRenderable } from "@opentui/core";
 import { createTestRenderer } from "@opentui/core/testing";
 import { buildApp } from "../src/ui";
-import { childPath, create, copyInto, renameEntry, entries, textPreview, waveform, musicPreview } from "../src/files";
+import { childPath, create, copyInto, moveInto, renameEntry, entries, textPreview, waveform, musicPreview } from "../src/files";
 
 async function fixture() {
   const directory = await mkdtemp(join(tmpdir(), "pocket-test-"));
@@ -35,6 +35,19 @@ test("file operations protect existing content, links and unusual names", async 
     expect((await lstat(join(target, "link"))).isSymbolicLink()).toBe(true);
     await renameEntry(target, "renamed-folder");
     expect((await entries(directory))[0]?.directory).toBe(true);
+    const renamedFolder = join(directory, "renamed-folder");
+    await expect(moveInto(join(directory, "hello.txt"), renamedFolder)).rejects.toThrow();
+    const moved = await moveInto(renamed, renamedFolder);
+    expect(await Bun.file(moved).exists()).toBe(true);
+    await expect(lstat(renamed)).rejects.toThrow();
+    await expect(moveInto(renamedFolder, renamedFolder)).rejects.toThrow();
+    expect(await Bun.file(join(renamedFolder, "hello.txt")).text()).toContain("Hello, pocket!");
+    await symlink("missing.txt", join(directory, "broken-link"));
+    const movedLink = await moveInto(join(directory, "broken-link"), renamedFolder);
+    expect((await lstat(movedLink)).isSymbolicLink()).toBe(true);
+    const destination = await create(directory, "destination", true);
+    const movedFolder = await moveInto(renamedFolder, destination);
+    expect(await Bun.file(join(movedFolder, "hello.txt")).text()).toContain("Hello, pocket!");
     expect(await textPreview(join(directory, "hello.txt"))).toContain("   1  Hello, pocket!");
     await Bun.write(join(directory, "binary"), new Uint8Array([0, 1, 2]));
     expect(await textPreview(join(directory, "binary"))).toContain("Binary file");
@@ -299,4 +312,44 @@ test("bookmark toggles persist and support keyboard and sidebar jumps", async ()
     setup.renderer.destroy(); reopened?.renderer.destroy();
     await rm(directory, { recursive: true, force: true });
   }
+});
+
+test("x queues a cut, p moves safely and clears it, and y still copies repeatedly", async () => {
+  const directory = await fixture(), source = join(directory, "hello.txt"), folder = join(directory, "folder");
+  const setup = await createTestRenderer({ width: 110, height: 30 });
+  async function paste(message: string) {
+    setup.mockInput.pressKey("p");
+    for (let attempt = 0; attempt < 100; attempt++) {
+      await Bun.sleep(10); await setup.renderOnce();
+      if (setup.captureCharFrame().includes(message)) return;
+    }
+    throw new Error(`Paste did not report: ${message}`);
+  }
+  try {
+    const app = buildApp(setup.renderer, directory, ":memory:"); await app.ready;
+    app.list.setSelectedIndex(app.list.options.findIndex(option => option.value.path === source));
+    setup.mockInput.pressKey("x"); await setup.renderOnce();
+    expect(setup.captureCharFrame()).toContain("Cut hello.txt");
+    expect(await Bun.file(source).text()).toContain("Hello, pocket!");
+    await paste("Choose a different folder");
+    const target = join(folder, "hello.txt");
+    await Bun.write(target, "keep this content"); await app.load(folder);
+    await paste("That name already exists");
+    expect(await Bun.file(source).text()).toContain("Hello, pocket!");
+    expect(await Bun.file(target).text()).toBe("keep this content");
+    await rename(target, join(folder, "occupied.txt"));
+    await paste("Move pasted.");
+    expect(await Bun.file(source).exists()).toBe(false);
+    expect(await Bun.file(target).text()).toContain("Hello, pocket!");
+    expect(app.list.getSelectedOption()?.value.path).toBe(target);
+    await paste("Press y or x on a file first");
+    setup.mockInput.pressKey("x"); setup.mockInput.pressKey("y");
+    await app.load(directory); await paste("Copy pasted.");
+    expect(await Bun.file(target).text()).toContain("Hello, pocket!");
+    expect(await Bun.file(source).text()).toContain("Hello, pocket!");
+    const another = await create(directory, "another", true);
+    await app.load(another); await paste("Copy pasted.");
+    expect(await Bun.file(join(another, "hello.txt")).text()).toContain("Hello, pocket!");
+    expect(await Bun.file(target).exists()).toBe(true);
+  } finally { setup.renderer.destroy(); await rm(directory, { recursive: true, force: true }); }
 });
