@@ -110,6 +110,8 @@ jobs:
           sed -i "s/^pkgver=.*/pkgver=$VERSION/" PKGBUILD
           sed -i 's/^pkgrel=.*/pkgrel=1/' PKGBUILD
           sudo -u builder updpkgsums
+          source PKGBUILD
+          [[ "${sha256sums_x86_64[0]}" =~ ^[a-f0-9]{64}$ && "${sha256sums_aarch64[0]}" =~ ^[a-f0-9]{64}$ ]] || { echo 'Refusing to publish without release checksums.'; exit 1; }
           sudo -u builder makepkg --verifysource
           sudo -u builder makepkg --printsrcinfo > .SRCINFO
       - name: Publish AUR package

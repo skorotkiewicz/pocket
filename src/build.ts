@@ -1,7 +1,8 @@
 import { chmod, mkdir, rename } from "node:fs/promises";
 import { join, resolve } from "node:path";
 
-if (process.platform !== "linux" || !process.report.getReport().header.glibcVersionRuntime) {
+const report = process.report.getReport() as { header?: { glibcVersionRuntime?: string } };
+if (process.platform !== "linux" || !report.header?.glibcVersionRuntime) {
   throw new Error("Pocket executable builds currently require a Linux glibc host.");
 }
 
