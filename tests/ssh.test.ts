@@ -65,6 +65,12 @@ test.skipIf(process.env.POCKET_SSH_TEST !== "1")("two SSH clients share files, e
     await waitFor(() => second.output.text.includes("Pairing password for this server run"), "Share dialog was not broadcast");
     expect(second.output.text).toContain("ssh://pocket@127.0.0.1:");
     expect(second.output.text).toContain("Host key fingerprint");
+    await waitFor(async () => (await screen()).includes(password), "Password was not visible for selection");
+    const lines = (await screen()).split("\n");
+    const y = lines.findIndex(line => line.includes(password)), x = lines[y]!.indexOf(password);
+    const beforeSelection = second.output.text.length;
+    second.client.terminal!.write(`\x1b[<0;${x + 1};${y + 1}M\x1b[<32;${x + password.length};${y + 1}M\x1b[<0;${x + password.length};${y + 1}m`);
+    await waitFor(() => second.output.text.slice(beforeSelection).includes(Buffer.from(password).toString("base64")), "Selected password did not reach the SSH clipboard");
     first.client.terminal!.write("\x1b");
     await waitFor(async () => !(await screen()).includes("Join the same pocket"), "Escape did not close the shared dialog");
     first.client.kill(); first.client.terminal!.close(); await first.client.exited;

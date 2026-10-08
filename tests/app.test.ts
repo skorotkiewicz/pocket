@@ -152,3 +152,40 @@ test("Enter copies ready preview text after keyboard or mouse focus and reports 
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+test("selecting the pairing password copies only the selection on mouse release", async () => {
+  const directory = await fixture();
+  const setup = await createTestRenderer({ width: 110, height: 30 });
+  const copy = spyOn(setup.renderer, "copyToClipboardOSC52").mockReturnValue(true);
+  const oldUri = process.env.CUTE_SSH_URI, oldPassword = process.env.CUTE_PAIRING;
+  const password = "0123456789abcdef0123456789abcdef";
+  process.env.CUTE_SSH_URI = "ssh://pocket@127.0.0.1:2222";
+  process.env.CUTE_PAIRING = password;
+  try {
+    const app = buildApp(setup.renderer, directory); await app.ready;
+    app.share(); await setup.renderOnce();
+    const lines = setup.captureCharFrame().split("\n");
+    const y = lines.findIndex(line => line.includes(password));
+    expect(y).toBeGreaterThanOrEqual(0);
+    const x = lines[y]!.indexOf(password);
+    await setup.mockMouse.pressDown(x, y);
+    expect(copy).not.toHaveBeenCalled();
+    await setup.mockMouse.moveTo(x + password.length - 1, y);
+    expect(copy).not.toHaveBeenCalled();
+    await setup.mockMouse.release(x + password.length - 1, y);
+    expect(copy).toHaveBeenCalledTimes(1);
+    expect(copy).toHaveBeenCalledWith(password);
+    copy.mockClear();
+    await setup.mockMouse.click(x + password.length + 2, y);
+    expect(copy).not.toHaveBeenCalled();
+    await setup.mockMouse.doubleClick(x + 5, y);
+    expect(copy).toHaveBeenLastCalledWith(password);
+    setup.renderer.destroy();
+    expect(setup.renderer.listenerCount("selection")).toBe(0);
+  } finally {
+    if (oldUri === undefined) delete process.env.CUTE_SSH_URI; else process.env.CUTE_SSH_URI = oldUri;
+    if (oldPassword === undefined) delete process.env.CUTE_PAIRING; else process.env.CUTE_PAIRING = oldPassword;
+    copy.mockRestore(); setup.renderer.destroy();
+    await rm(directory, { recursive: true, force: true });
+  }
+});

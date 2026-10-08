@@ -153,11 +153,18 @@ export function buildApp(renderer: CliRenderer, initialPath: string) {
     else if (kind(entry.path) === "image") { previewFocused = true; preview.focus(); layout(); say("Tab returns to files. Image uses blocks inside tmux."); }
     else await edit();
   }
+  function copyText(text: string, source: string) {
+    const copied = renderer.copyToClipboardOSC52(text);
+    say(copied ? `${source} sent to your terminal clipboard.` : "Terminal clipboard unavailable. Enable OSC 52 in your terminal.", !copied);
+  }
+  function copySelection() {
+    const text = renderer.getSelection()?.getSelectedText();
+    if (text) copyText(text, "Selected text");
+  }
   function copyPreview() {
     if (image.visible) { say("Image previews cannot be copied as text.", true); return; }
     if (!previewReady) { say("No preview text ready to copy.", true); return; }
-    const copied = renderer.copyToClipboardOSC52(previewText.plainText);
-    say(copied ? "Preview text sent to your terminal clipboard." : "Terminal clipboard unavailable. Enable OSC 52 in your terminal.", !copied);
+    copyText(previewText.plainText, "Preview text");
   }
   async function edit() {
     const entry = selected();
@@ -244,7 +251,7 @@ export function buildApp(renderer: CliRenderer, initialPath: string) {
     });
   }
   function help() {
-    dialog("A tiny field guide", `FILES\n↑ ↓ or j k  choose a file\nEnter / → / l  open folder or file\n← / h / Backspace  parent folder\nTab  files / preview, arrows scroll preview\nEnter in preview  copy displayed text to clipboard\n/  find in this folder    Esc  clear filter\n.  show hidden files     g  go to a path\nHome  first file         End  last file\n\nMAKE & EDIT\ne  edit with $EDITOR, defaults to vi\nn  new file             N  new folder\nr  rename               y  copy selected file or folder\np  paste a copy, no overwrite\nd  move to system trash, confirmation required\nSpace  play / stop music on the host\nF5  refresh folder\n\nSHARED SESSION\ns  SSH connection and QR code\nCtrl+B then %  split left / right\nCtrl+B then \"  split top / bottom\nCtrl+B then c  new shell tab\nCtrl+B then arrows  switch panes\nCtrl+B then n / p  next / previous tab\nCtrl+B then d  detach, leave session running\n\n?  this guide    q  close file manager\nSSH users share control and your OS permissions.`);
+    dialog("A tiny field guide", `FILES\n↑ ↓ or j k  choose a file\nEnter / → / l  open folder or file\n← / h / Backspace  parent folder\nTab  files / preview, arrows scroll preview\nEnter in preview  copy displayed text to clipboard\nDrag over text  copy selection when released\n/  find in this folder    Esc  clear filter\n.  show hidden files     g  go to a path\nHome  first file         End  last file\n\nMAKE & EDIT\ne  edit with $EDITOR, defaults to vi\nn  new file             N  new folder\nr  rename               y  copy selected file or folder\np  paste a copy, no overwrite\nd  move to system trash, confirmation required\nSpace  play / stop music on the host\nF5  refresh folder\n\nSHARED SESSION\ns  SSH connection and QR code\nCtrl+B then %  split left / right\nCtrl+B then \"  split top / bottom\nCtrl+B then c  new shell tab\nCtrl+B then arrows  switch panes\nCtrl+B then n / p  next / previous tab\nCtrl+B then d  detach, leave session running\n\n?  this guide    q  close file manager\nSSH users share control and your OS permissions.`);
   }
   function share() {
     const uri = process.env.CUTE_SSH_URI;
@@ -291,10 +298,12 @@ export function buildApp(renderer: CliRenderer, initialPath: string) {
     if (action) { key.preventDefault(); run(action); }
   }
   renderer.keyInput.on("keypress", onKey);
+  renderer.on("selection", copySelection);
   renderer.once("destroy", () => {
     disposed = true; ++loadVersion; ++previewVersion;
     player?.kill();
     renderer.off("resize", layout); renderer.keyInput.off("keypress", onKey);
+    renderer.off("selection", copySelection);
   });
   list.focus();
   const ready = load(cwd).catch(error => say(String(error), true));
