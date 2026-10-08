@@ -126,6 +126,7 @@ export function buildApp(renderer: CliRenderer, initialPath: string, bookmarksFi
     if (searchInput.visible) finishSearch(false);
     breadcrumb.content = ` ${clean(cwd.replace(homedir(), "~"))}`;
     filter(selectPath);
+    run(refreshBookmarks);
   }
   function filter(selectPath?: string) {
     const visible = all.filter(entry => (hidden || !entry.name.startsWith(".")) && entry.name.toLowerCase().includes(query.toLowerCase()));
@@ -271,13 +272,17 @@ export function buildApp(renderer: CliRenderer, initialPath: string, bookmarksFi
       id: `bookmark-${index}`, content: ` * ${label(basename(path) || path)}`, height: 1, fg: C.mint, truncate: true, selectable: false,
       onMouseDown: event => { event.preventDefault(); if (!modal && !busy) run(() => jumpBookmark(path)); },
     })));
-    bookmarkPlaces.add(new TextRenderable(renderer, { content: " + save folder (B)", height: 1, fg: C.muted, selectable: false, onMouseDown: event => { event.preventDefault(); if (!modal && !busy) run(saveBookmark); } }));
+    bookmarkPlaces.add(new TextRenderable(renderer, { id: "bookmark-toggle", content: paths.includes(cwd) ? " - unbookmark B" : " + bookmark B", height: 1, fg: C.muted, selectable: false, onMouseDown: event => { event.preventDefault(); if (!modal && !busy) run(toggleBookmark); } }));
   }
-  function saveBookmark() {
+  function toggleBookmark() {
     savedBookmarks();
-    const added = bookmarksDB!.query("INSERT OR IGNORE INTO bookmarks (path) VALUES (?)").run(cwd).changes;
+    const removed = bookmarksDB!.transaction(() => {
+      const removed = bookmarksDB!.query("DELETE FROM bookmarks WHERE path = ?").run(cwd).changes > 0;
+      if (!removed) bookmarksDB!.query("INSERT INTO bookmarks (path) VALUES (?)").run(cwd);
+      return removed;
+    }).immediate();
     refreshBookmarks();
-    say(added ? `Bookmarked ${cwd}. Press b to jump back.` : "This folder is already bookmarked. Press b to jump.");
+    say(removed ? `Removed bookmark: ${cwd}` : `Bookmarked ${cwd}. Press b to jump back.`);
   }
   async function jumpBookmark(path: string) {
     busy = true;
@@ -336,7 +341,7 @@ export function buildApp(renderer: CliRenderer, initialPath: string, bookmarksFi
     });
   }
   function help() {
-    dialog("A tiny field guide", `FILES\n↑ ↓ or j k  choose a file\nEnter / → / l  open folder or file\n← / h / Backspace  parent folder\nTab  files / preview, arrows scroll preview\nEnter in preview  copy displayed text to clipboard\nDrag over text  copy selection when released\n/  find in this folder    Esc  clear filter\n.  show hidden files     g  go to a path\nHome  first file         End  last file\nB  bookmark current folder    b  jump to bookmark\n\nMAKE & EDIT\ne  edit with $EDITOR, defaults to vi\nn  new file             N  new folder\nr  rename               y  copy selected file or folder\np  paste a copy, no overwrite\nd  move to system trash, confirmation required\nSpace  play / stop music on the host\nF5  refresh folder\n\nSHARED SESSION\ns  SSH connection and QR code\nCtrl+B then %  split left / right\nCtrl+B then \"  split top / bottom\nCtrl+B then c  new shell tab\nCtrl+B then arrows  switch panes\nCtrl+B then n / p  next / previous tab\nCtrl+B then d  detach, leave session running\n\n?  this guide    q  close file manager\nSSH users share control and your OS permissions.`);
+    dialog("A tiny field guide", `FILES\n↑ ↓ or j k  choose a file\nEnter / → / l  open folder or file\n← / h / Backspace  parent folder\nTab  files / preview, arrows scroll preview\nEnter in preview  copy displayed text to clipboard\nDrag over text  copy selection when released\n/  find in this folder    Esc  clear filter\n.  show hidden files     g  go to a path\nHome  first file         End  last file\nB  toggle folder bookmark    b  jump to bookmark\n\nMAKE & EDIT\ne  edit with $EDITOR, defaults to vi\nn  new file             N  new folder\nr  rename               y  copy selected file or folder\np  paste a copy, no overwrite\nd  move to system trash, confirmation required\nSpace  play / stop music on the host\nF5  refresh folder\n\nSHARED SESSION\ns  SSH connection and QR code\nCtrl+B then %  split left / right\nCtrl+B then \"  split top / bottom\nCtrl+B then c  new shell tab\nCtrl+B then arrows  switch panes\nCtrl+B then n / p  next / previous tab\nCtrl+B then d  detach, leave session running\n\n?  this guide    q  close file manager\nSSH users share control and your OS permissions.`);
   }
   function share() {
     const uri = process.env.CUTE_SSH_URI;
@@ -359,7 +364,7 @@ export function buildApp(renderer: CliRenderer, initialPath: string, bookmarksFi
     }
     if (key.ctrl || key.meta || key.super) return;
     if (key.name === "b" || key.name === "B") {
-      key.preventDefault(); run(key.shift || key.sequence === "B" ? saveBookmark : showBookmarks); return;
+      key.preventDefault(); run(key.shift || key.sequence === "B" ? toggleBookmark : showBookmarks); return;
     }
     if (key.name === "tab") {
       key.preventDefault(); previewFocused = !previewFocused;
@@ -400,6 +405,6 @@ export function buildApp(renderer: CliRenderer, initialPath: string, bookmarksFi
     renderer.off("selection", copySelection);
   });
   list.focus();
-  const ready = load(cwd).then(() => { if (!disposed) refreshBookmarks(); }).catch(error => say(String(error), true));
+  const ready = load(cwd).catch(error => say(String(error), true));
   return { ready, load, list, help, share, get cwd() { return cwd; }, get playingPath() { return playingPath; } };
 }

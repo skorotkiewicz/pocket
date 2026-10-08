@@ -234,7 +234,7 @@ test("inline search keeps results visible, accepts Enter, and clears on Escape",
   } finally { setup.renderer.destroy(); await rm(directory, { recursive: true, force: true }); }
 });
 
-test("bookmarks persist without duplicates and support keyboard and sidebar jumps", async () => {
+test("bookmark toggles persist and support keyboard and sidebar jumps", async () => {
   const directory = await fixture(), folder = join(directory, "folder");
   const database = join(directory, ".bookmarks.sqlite");
   const setup = await createTestRenderer({ width: 110, height: 30 });
@@ -245,7 +245,14 @@ test("bookmarks persist without duplicates and support keyboard and sidebar jump
     expect(setup.captureCharFrame()).toContain("No bookmarks yet");
     expect(setup.renderer.root.findDescendantById("dialog")!.height).toBe(6);
     setup.mockInput.pressEscape(); await Bun.sleep(60);
-    setup.mockInput.pressKey("B"); setup.mockInput.pressKey("B");
+    setup.mockInput.pressKey("B"); await setup.renderOnce();
+    expect(setup.renderer.root.findDescendantById("bookmark-0")).toBeDefined();
+    expect(setup.captureCharFrame()).toContain("unbookmark B");
+    setup.mockInput.pressKey("B"); await setup.renderOnce();
+    expect(setup.renderer.root.findDescendantById("bookmark-0")).toBeUndefined();
+    expect(setup.captureCharFrame()).toContain("Removed bookmark");
+    expect(await Bun.file(join(directory, "hello.txt")).exists()).toBe(true);
+    setup.mockInput.pressKey("B");
     setup.mockInput.pressKey("b"); await setup.renderOnce();
     let picker = setup.renderer.root.findDescendantById("bookmark-picker") as SelectRenderable;
     expect(picker.options.length).toBe(1);
@@ -264,7 +271,7 @@ test("bookmarks persist without duplicates and support keyboard and sidebar jump
     expect(app.cwd).toBe(directory);
     setup.renderer.destroy();
     reopened = await createTestRenderer({ width: 54, height: 18 });
-    const next = buildApp(reopened.renderer, directory, database); await next.ready;
+    let next = buildApp(reopened.renderer, directory, database); await next.ready;
     reopened.mockInput.pressKey("b"); await reopened.renderOnce();
     picker = reopened.renderer.root.findDescendantById("bookmark-picker") as SelectRenderable;
     expect(picker.options.map(option => option.value)).toEqual([directory, folder]);
@@ -272,7 +279,15 @@ test("bookmarks persist without duplicates and support keyboard and sidebar jump
     expect(reopened.renderer.root.findDescendantById("dialog")!.height).toBe(5);
     await reopened.mockMouse.click(picker.x + 2, picker.y + 1); await Bun.sleep(40);
     expect(next.cwd).toBe(folder);
-    await next.load(directory);
+    reopened.mockInput.pressKey("B");
+    reopened.renderer.destroy();
+    reopened = await createTestRenderer({ width: 54, height: 12 });
+    next = buildApp(reopened.renderer, directory, database); await next.ready;
+    reopened.mockInput.pressKey("b"); await reopened.renderOnce();
+    picker = reopened.renderer.root.findDescendantById("bookmark-picker") as SelectRenderable;
+    expect(picker.options.map(option => option.value)).toEqual([directory]);
+    reopened.mockInput.pressEscape(); await Bun.sleep(60);
+    await next.load(folder); reopened.mockInput.pressKey("B"); await next.load(directory);
     await rename(folder, join(directory, "moved-folder"));
     reopened.mockInput.pressKey("b"); await reopened.renderOnce();
     picker = reopened.renderer.root.findDescendantById("bookmark-picker") as SelectRenderable;
