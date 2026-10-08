@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { mkdtemp, mkdir, chmod, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, chmod, readdir, stat, symlink, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
@@ -21,7 +21,19 @@ test.skipIf(process.env.POCKET_SSH_TEST !== "1")("two SSH clients share files, e
     expect(await keygen.exited).toBe(0);
     const editor = join(directory, "editor");
     await Bun.write(editor, '#!/bin/sh\nprintf "edited through SSH\\n" >> "$1"\n'); await chmod(editor, 0o700);
-    server = Bun.spawn([resolve("server/target/debug/cute-tui-server"), folder, "--headless", "--listen", "127.0.0.1:0", "--authorized-keys", join(directory, "client.pub"), "--state-dir", join(directory, "state")], { env: { ...process.env, EDITOR: editor, XDG_DATA_HOME: directory }, stdout: "pipe", stderr: "pipe" });
+    let executable = resolve("server/target/debug/cute-tui-server");
+    const env = { ...process.env, EDITOR: editor, XDG_DATA_HOME: directory };
+    const runtime = join(directory, "runtime");
+    if (process.env.POCKET_BINARY) {
+      executable = join(directory, "pocket");
+      await Bun.write(executable, Bun.file(resolve(process.env.POCKET_BINARY))); await chmod(executable, 0o755);
+      const bin = join(directory, "bin"); await mkdir(bin); await mkdir(runtime);
+      for (const tool of ["tmux", "sh", "mv"]) await symlink(Bun.which(tool)!, join(bin, tool));
+      Object.assign(env, { PATH: bin, SHELL: Bun.which("sh")!, TMPDIR: runtime });
+      const check = Bun.spawn([join(bin, "sh"), "-c", "! command -v bun && ! command -v cargo"], { env, stdout: "ignore", stderr: "ignore" });
+      expect(await check.exited).toBe(0);
+    }
+    server = Bun.spawn([executable, folder, "--headless", "--listen", "127.0.0.1:0", "--authorized-keys", join(directory, "client.pub"), "--state-dir", join(directory, "state")], { cwd: directory, env, stdout: "pipe", stderr: "pipe" });
     let log = "";
     const readLog = (async () => { for await (const chunk of server!.stdout as ReadableStream<Uint8Array>) log += new TextDecoder().decode(chunk); })();
     await waitFor(() => log.includes("Pairing password:"), "Server did not start");
@@ -43,6 +55,12 @@ test.skipIf(process.env.POCKET_SSH_TEST !== "1")("two SSH clients share files, e
     };
     const first = connect(["-i", join(directory, "client"), "-o", "BatchMode=yes"]);
     await waitFor(() => first.output.text.includes("hello.txt"), "Key-authenticated client did not render");
+    if (process.env.POCKET_BINARY) {
+      const extracted = (await readdir(runtime)).filter(name => name.startsWith("pocket-tui-"));
+      expect(extracted.length).toBe(1);
+      expect((await stat(join(runtime, extracted[0]!))).mode & 0o777).toBe(0o700);
+      expect((await stat(join(runtime, extracted[0]!, "pocket-tui"))).mode & 0o777).toBe(0o700);
+    }
     // Password authentication uses an askpass helper instead of typing secrets into the PTY.
     const askpass = join(directory, "askpass");
     await Bun.write(askpass, '#!/bin/sh\nprintf "%s" "$PAIRING"\n'); await chmod(askpass, 0o700);
@@ -104,6 +122,7 @@ test.skipIf(process.env.POCKET_SSH_TEST !== "1")("two SSH clients share files, e
     expect(await exec.exited).not.toBe(0);
     expect(await Bun.file(join(folder, "should-not-exist")).exists()).toBe(false);
     server.kill("SIGINT"); expect(await server.exited).toBe(0); await readLog;
+    if (process.env.POCKET_BINARY) expect((await readdir(runtime)).filter(name => name.startsWith("pocket-tui-"))).toEqual([]);
   } catch (error) {
     // Do not dump terminal output: the share dialog contains pairing credentials.
     console.error("SSH smoke test failed. Terminal output withheld because it contains credentials.");
