@@ -441,7 +441,7 @@ async fn main() -> Result<()> {
         .arg(&folder)
         .arg("--")
         .arg("bun")
-        .arg(project.join("index.ts"))
+        .arg(project.join("src/index.ts"))
         .arg(&folder)
         .env("CUTE_SOCKET", &socket)
         .env("CUTE_SSH_URI", &uri)

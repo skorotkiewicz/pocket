@@ -4,8 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ImageRenderable } from "@opentui/core";
 import { createTestRenderer } from "@opentui/core/testing";
-import { buildApp } from "./ui";
-import { childPath, create, copyInto, renameEntry, entries, textPreview, waveform, musicPreview } from "./files";
+import { buildApp } from "../src/ui";
+import { childPath, create, copyInto, renameEntry, entries, textPreview, waveform, musicPreview } from "../src/files";
 
 async function fixture() {
   const directory = await mkdtemp(join(tmpdir(), "pocket-test-"));

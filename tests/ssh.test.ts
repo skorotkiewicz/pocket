@@ -2,7 +2,7 @@ import { test, expect } from "bun:test";
 import { mkdtemp, mkdir, chmod, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { textPreview } from "./files";
+import { textPreview } from "../src/files";
 
 async function waitFor(check: () => boolean | Promise<boolean>, message: string) {
   for (let i = 0; i < 150; i++) { if (await check()) return; await Bun.sleep(40); }

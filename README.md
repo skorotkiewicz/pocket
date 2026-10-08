@@ -33,7 +33,7 @@ Start just the file manager, without SSH or tmux:
 ```sh
 bun run dev
 # Or:
-bun index.ts ~/Documents
+bun src/index.ts ~/Documents
 ```
 
 The sidebar disappears on smaller terminals. Below 72 columns, Tab switches between the file list and preview. With the preview focused, Enter copies its displayed text using OSC 52. Your terminal must allow clipboard writes.
