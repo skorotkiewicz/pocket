@@ -32,6 +32,7 @@ test.skipIf(process.env.POCKET_SSH_TEST !== "1")("two SSH clients share files, e
       Object.assign(env, { PATH: bin, SHELL: Bun.which("sh")!, TMPDIR: runtime });
       const check = Bun.spawn([join(bin, "sh"), "-c", "! command -v bun && ! command -v cargo"], { env, stdout: "ignore", stderr: "ignore" });
       expect(await check.exited).toBe(0);
+      await Bun.write(join(folder, "pixel.png"), Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=", "base64"));
     }
     server = Bun.spawn([executable, folder, "--headless", "--listen", "127.0.0.1:0", "--authorized-keys", join(directory, "client.pub"), "--state-dir", join(directory, "state")], { cwd: directory, env, stdout: "pipe", stderr: "pipe" });
     let log = "";
@@ -60,6 +61,13 @@ test.skipIf(process.env.POCKET_SSH_TEST !== "1")("two SSH clients share files, e
       expect(extracted.length).toBe(1);
       expect((await stat(join(runtime, extracted[0]!))).mode & 0o777).toBe(0o700);
       expect((await stat(join(runtime, extracted[0]!, "pocket-tui"))).mode & 0o777).toBe(0o700);
+      first.client.terminal!.write("/");
+      await waitFor(async () => (await screen()).includes("Filter file names"), "Packaged inline search did not open");
+      first.client.terminal!.write("pixel\r");
+      await waitFor(async () => /[▀▄█]/.test(await screen()), "Packaged PNG did not render as terminal blocks");
+      expect((await screen()).includes("Image preview failed")).toBe(false);
+      first.client.terminal!.write("\x1b");
+      await waitFor(async () => (await screen()).includes("hello.txt"), "Could not restore the packaged file list");
     }
     // Password authentication uses an askpass helper instead of typing secrets into the PTY.
     const askpass = join(directory, "askpass");

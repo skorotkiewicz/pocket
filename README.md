@@ -71,6 +71,20 @@ xdg-mime default mpv.desktop video/mp4 video/x-matroska
 xdg-mime default mpv.desktop audio/x-mpegurl audio/mpegurl application/x-mpegurl application/vnd.apple.mpegurl
 ```
 
+## Build one executable
+
+Build on a Linux glibc host with Bun and Rust installed:
+
+```sh
+bun install
+bun run build
+./pocket ~/Documents
+```
+
+The output is exactly `./pocket`, containing the Rust SSH server, compiled TUI, Bun runtime and OpenTUI native assets. Copy that one file to a compatible Linux machine; no Bun, Rust, source checkout or `node_modules` is needed there. Builds use the host architecture and are not universal or fully static.
+
+Runtime tools remain external: tmux 3.3+, GNU coreutils and a shell. FFmpeg, `gio` and `xdg-open` remain optional as described above. Pocket extracts the embedded TUI into a private directory with owner-only permissions and removes it on normal server shutdown. The temporary filesystem must allow execution; set `TMPDIR` to a writable, executable filesystem if yours is mounted `noexec`.
+
 ## Join from another device
 
 By default, SSH listens only on `127.0.0.1:2222`. To allow another device on your LAN, supply this computer's LAN address:
@@ -150,7 +164,10 @@ bun run check
 bun run server:test
 cargo clippy --manifest-path server/Cargo.toml -- -D warnings
 bun run ssh:test
+bun run binary:test
 ```
+
+`bun run binary:test` builds `./pocket`, copies it into a clean directory, then runs the SSH smoke test with Bun and Cargo absent from the server's PATH. It also checks extraction permissions and cleanup.
 
 The SSH smoke test starts a real Rust server and two real SSH clients. It checks key and password authentication, shared file creation, `$EDITOR`, preview and selection clipboard forwarding, the share dialog, resizing, disconnect survival, rejected unauthenticated access and rejected SSH exec.
 
