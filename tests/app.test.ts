@@ -2,10 +2,11 @@ import { test, expect, spyOn } from "bun:test";
 import { mkdtemp, rm, mkdir, symlink, lstat, rename, chmod } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { ImageRenderable, InputRenderable, SelectRenderable, TabSelectRenderable } from "@opentui/core";
 import { createTestRenderer } from "@opentui/core/testing";
 import { buildApp } from "../src/ui";
-import { childPath, create, copyInto, moveInto, renameEntry, entries, textPreview, BINARY_PREVIEW, waveform, musicPreview } from "../src/files";
+import { childPath, create, copyInto, moveInto, renameEntry, entries, textPreview, BINARY_PREVIEW, waveform, musicPreview, mediaPlaylist } from "../src/files";
 
 async function fixture() {
   const directory = await mkdtemp(join(tmpdir(), "pocket-test-"));
@@ -530,6 +531,85 @@ test("Enter opens every file and directory on the host; arrows navigate and e ed
   } finally {
     launch.mockRestore(); which.mockRestore();
     if (oldEditor === undefined) delete process.env.EDITOR; else process.env.EDITOR = oldEditor;
+    setup.renderer.destroy(); await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("media-only folders open host playlists from the folder or selected file, including hidden and filtered siblings", async () => {
+  const directory = await fixture(), season = join(directory, "season");
+  const setup = await createTestRenderer({ width: 110, height: 30 });
+  const spawn = Bun.spawn, oldTmp = process.env.TMPDIR;
+  let available = "gio", code = 0;
+  const which = spyOn(Bun, "which").mockImplementation(name => name === available ? `/fake/${name}` : null);
+  const launch = spyOn(Bun, "spawn").mockImplementation((command: unknown) => {
+    if (!Array.isArray(command) || !["/fake/gio", "/fake/xdg-open"].includes(command[0])) throw new Error("Unexpected subprocess in playlist test.");
+    return spawn(["sh", "-c", `exit ${code}`], { stdin: "ignore", stdout: "ignore", stderr: "ignore", detached: true });
+  });
+  async function waitFor(check: () => boolean) {
+    for (let attempt = 0; attempt < 100; attempt++) {
+      await Bun.sleep(10); await setup.renderOnce(); if (check()) return;
+    }
+    throw new Error("Playlist opener did not finish.");
+  }
+  async function playlistPaths() {
+    const command = launch.mock.calls.at(-1)![0] as string[], target = command.at(-1)!;
+    expect(target).toEndWith("/playlist.m3u8");
+    expect(command).toEqual(available === "gio" ? ["/fake/gio", "open", "--", target] : ["/fake/xdg-open", target]);
+    const lines = (await Bun.file(target).text()).split("\n");
+    expect(lines[0]).toBe("#EXTM3U");
+    return lines.slice(1, -1).map(url => fileURLToPath(url));
+  }
+  try {
+    process.env.TMPDIR = directory;
+    await mkdir(season);
+    const names = ["Episode 1 # '猫'\n#EXTINF:fake.mkv", "Episode 2.mkv", "Episode 10.MKV"];
+    for (const name of [...names].reverse()) await Bun.write(join(season, name), "media fixture");
+    const paths = names.map(name => join(season, name));
+    expect(await mediaPlaylist(season)).toEqual(paths);
+    expect(await mediaPlaylist(paths[1]!)).toEqual([paths[1]!, paths[2]!, paths[0]!]);
+    expect(await mediaPlaylist(join(directory, "folder"))).toBeUndefined();
+    expect(await mediaPlaylist(directory)).toBeUndefined();
+    const album = join(directory, "album"); await mkdir(album);
+    await Bun.write(join(album, "1.mp3"), "audio"); await Bun.write(join(album, "2.FLAC"), "audio");
+    expect(await mediaPlaylist(album)).toEqual([join(album, "1.mp3"), join(album, "2.FLAC")]);
+    const app = buildApp(setup.renderer, directory, ":memory:"); await app.ready;
+    app.list.setSelectedIndex(app.list.options.findIndex(option => option.value.path === season));
+    await setup.waitForFrame(frame => frame.includes("Enter to play this folder as a playlist"));
+    expect(launch.mock.calls.length).toBe(0);
+    setup.mockInput.pressEnter();
+    await waitFor(() => setup.captureCharFrame().includes("Opened 3-item playlist"));
+    expect(await playlistPaths()).toEqual(paths);
+    expect(app.cwd).toBe(directory);
+    setup.mockInput.pressArrow("right"); await waitFor(() => app.cwd === season);
+    app.list.setSelectedIndex(app.list.options.findIndex(option => option.value.path === paths[1]));
+    setup.mockInput.pressTab(); setup.mockInput.pressEnter();
+    await waitFor(() => launch.mock.calls.length === 2 && setup.captureCharFrame().includes("Opened 3-item playlist"));
+    expect(await playlistPaths()).toEqual([paths[1]!, paths[2]!, paths[0]!]);
+    available = "xdg-open"; setup.mockInput.pressKey("o");
+    await waitFor(() => launch.mock.calls.length === 3 && setup.captureCharFrame().includes("Opened 3-item playlist"));
+    expect(await playlistPaths()).toEqual([paths[1]!, paths[2]!, paths[0]!]);
+    setup.mockInput.pressKey("/"); await setup.mockInput.typeText("2"); setup.mockInput.pressEnter();
+    expect(app.list.options.length).toBe(1);
+    setup.mockInput.pressEnter();
+    await waitFor(() => launch.mock.calls.length === 4 && setup.captureCharFrame().includes("Opened 3-item playlist"));
+    expect(await playlistPaths()).toEqual([paths[1]!, paths[2]!, paths[0]!]);
+    await Bun.write(join(season, ".hidden.mp4"), "hidden media");
+    expect(await mediaPlaylist(season)).toEqual([join(season, ".hidden.mp4"), ...paths]);
+    await Bun.write(join(season, ".notes"), "not media");
+    expect(await mediaPlaylist(season)).toBeUndefined();
+    setup.mockInput.pressEnter();
+    await waitFor(() => setup.captureCharFrame().includes("Opened Episode 2.mkv"));
+    expect(launch.mock.calls.at(-1)![0]).toEqual(["/fake/xdg-open", paths[1]!]);
+    code = 2; setup.mockInput.pressEnter();
+    await waitFor(() => setup.captureCharFrame().includes("Host opener exited with status 2"));
+    expect(app.cwd).toBe(season);
+    expect(setup.renderer.isDestroyed).toBe(false);
+    const nested = join(directory, "nested"); await mkdir(nested); await mkdir(join(nested, "subfolder"));
+    await Bun.write(join(nested, "video.mkv"), "media");
+    expect(await mediaPlaylist(nested)).toBeUndefined();
+  } finally {
+    which.mockRestore(); launch.mockRestore();
+    if (oldTmp === undefined) delete process.env.TMPDIR; else process.env.TMPDIR = oldTmp;
     setup.renderer.destroy(); await rm(directory, { recursive: true, force: true });
   }
 });

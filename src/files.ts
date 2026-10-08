@@ -1,17 +1,21 @@
-import { readdir, stat, lstat, mkdir, open, cp } from "node:fs/promises";
-import { basename, extname, join, resolve } from "node:path";
+import { readdir, stat, lstat, mkdir, mkdtemp, open, cp } from "node:fs/promises";
+import { basename, dirname, extname, join, resolve } from "node:path";
+import { tmpdir } from "node:os";
+import { pathToFileURL } from "node:url";
 
 export type Entry = { name: string; path: string; directory: boolean; link: boolean };
 export const clean = (text: string) => text.replace(/[\x00-\x08\x0b-\x1f\x7f-\x9f]/g, "�");
+const videoExtensions = [".mkv", ".mp4", ".m4v", ".mov", ".avi", ".webm", ".mpg", ".mpeg", ".wmv", ".flv", ".3gp", ".ogv"];
 export const kind = (path: string) => {
   const ext = extname(path).toLowerCase();
   if ([".png", ".jpg", ".jpeg", ".webp", ".gif"].includes(ext)) return "image";
   if ([".mp3", ".flac", ".wav", ".ogg", ".m4a", ".opus", ".aac"].includes(ext)) return "music";
-  if ([".mkv", ".mp4", ".m4v", ".mov", ".avi", ".webm", ".mpg", ".mpeg", ".wmv", ".flv", ".3gp", ".ogv",
-    ".pdf", ".epub", ".doc", ".docx", ".odt", ".xls", ".xlsx", ".ods", ".ppt", ".pptx", ".odp", ".rtf",
+  if (videoExtensions.includes(ext) || [".pdf", ".epub", ".doc", ".docx", ".odt", ".xls", ".xlsx", ".ods", ".ppt", ".pptx", ".odp", ".rtf",
     ".svg", ".html", ".htm", ".zip", ".rar", ".7z", ".tar", ".gz", ".bz2", ".xz", ".iso"].includes(ext)) return "external";
   return "text";
 };
+// ponytail: recognize media by extension; use MIME probing if extensionless media matters.
+export const isMedia = (path: string) => kind(path) === "music" || videoExtensions.includes(extname(path).toLowerCase());
 export const size = (bytes: number) => bytes < 1024 ? `${bytes} B` : bytes < 1024 ** 2 ? `${(bytes / 1024).toFixed(1)} KB` : `${(bytes / 1024 ** 2).toFixed(1)} MB`;
 
 export async function entries(path: string): Promise<Entry[]> {
@@ -68,14 +72,36 @@ async function moveEntry(source: string, target: string) {
   return target;
 }
 
+export async function mediaPlaylist(path: string) {
+  path = resolve(path);
+  const directory = (await stat(path)).isDirectory();
+  if (!directory && !isMedia(path)) return;
+  const items = await entries(directory ? path : dirname(path)).catch(() => []);
+  if (!items.length || items.some(item => item.directory || !isMedia(item.path))) return;
+  for (const item of items) {
+    if (!await stat(item.path).then(info => info.isFile(), () => false)) return;
+  }
+  const paths = items.map(item => item.path), start = directory ? 0 : paths.indexOf(path);
+  if (start < 0) return;
+  return [...paths.slice(start), ...paths.slice(0, start)];
+}
+
 export async function openExternal(path: string) {
   const gio = Bun.which("gio"), opener = gio ?? Bun.which("xdg-open");
   if (!opener) throw new Error("Install gio or xdg-utils to open files in the host's default app.");
-  const command = gio ? [gio, "open", "--", resolve(path)] : [opener, resolve(path)];
+  const playlist = await mediaPlaylist(path);
+  let target = resolve(path);
+  if (playlist) {
+    // ponytail: per-launch playlists rely on OS temp cleanup; add expiry if the host retains /tmp indefinitely.
+    target = join(await mkdtemp(join(tmpdir(), "pocket-playlist-")), "playlist.m3u8");
+    await Bun.write(target, `#EXTM3U\n${playlist.map(file => pathToFileURL(file).href).join("\n")}\n`);
+  }
+  const command = gio ? [gio, "open", "--", target] : [opener, target];
   const child = Bun.spawn(command, { stdin: "ignore", stdout: "ignore", stderr: "ignore", detached: true });
   child.unref();
   const code = await child.exited;
   if (code) throw new Error(`Host opener exited with status ${code}. Check the default app and host desktop session.`);
+  return playlist?.length ?? 0;
 }
 
 export const BINARY_PREVIEW = "Binary file.\nEnter or o opens the host's default app.";

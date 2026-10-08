@@ -10,7 +10,7 @@ import { homedir } from "node:os";
 import { stat } from "node:fs/promises";
 import { mkdirSync } from "node:fs";
 import { Database } from "bun:sqlite";
-import { entries, clean, kind, size, textPreview, BINARY_PREVIEW, openExternal, musicPreview, create, renameEntry, copyInto, moveInto, type Entry } from "./files";
+import { entries, clean, kind, isMedia, size, textPreview, BINARY_PREVIEW, openExternal, musicPreview, create, renameEntry, copyInto, moveInto, type Entry } from "./files";
 
 const C = { bg: "#202923", panel: "#25312a", ink: "#f5ead7", muted: "#acb9a7", mint: "#a8d5b5", peach: "#efb896", line: "#526854", selected: "#455d49", error: "#f2a799" };
 const label = (text: string) => clean(text).replace(/[\r\n\t]/g, "�");
@@ -156,7 +156,7 @@ export function buildApp(renderer: CliRenderer, initialPath: string, bookmarksFi
       if (entry.directory) {
         const children = await entries(entry.path);
         if (disposed || version !== previewVersion) return;
-        previewText.content = `${children.length} items\n\n${children.slice(0, 150).map(child => `${icon(child)}  ${label(child.name)}${child.directory ? "/" : ""}`).join("\n")}${children.length > 150 ? "\n…" : ""}\n\n→ to step inside. Enter opens the host's file manager.`;
+        previewText.content = `${children.length} items\n\n${children.slice(0, 150).map(child => `${icon(child)}  ${label(child.name)}${child.directory ? "/" : ""}`).join("\n")}${children.length > 150 ? "\n…" : ""}\n\n→ to step inside.\n${children.length && children.every(child => !child.directory && isMedia(child.path)) ? "Enter to play this folder as a playlist." : "Enter opens the host's file manager."}`;
       } else if (kind(entry.path) === "image") {
         if (info.size > 32 * 1024 ** 2) { previewText.content = "Image exceeds the 32 MB preview limit."; return; }
         preview.visible = false; image.visible = true; image.source = entry.path;
@@ -190,8 +190,8 @@ export function buildApp(renderer: CliRenderer, initialPath: string, bookmarksFi
   async function openHost(path = selected()?.path) {
     if (!path) { say("No file selected."); return; }
     say(`Opening ${basename(path)} in the host's default app…`);
-    await openExternal(path);
-    say(`Opened ${basename(path)} in the host's default app.`);
+    const count = await openExternal(path);
+    say(count ? `Opened ${count}-item playlist in the host's default player.` : `Opened ${basename(path)} in the host's default app.`);
   }
   function copyText(text: string, source: string) {
     const copied = renderer.copyToClipboardOSC52(text);
@@ -384,7 +384,7 @@ export function buildApp(renderer: CliRenderer, initialPath: string, bookmarksFi
     });
   }
   function help() {
-    dialog("A tiny field guide", `FILES\n↑ ↓ or j k  choose a file\nEnter  open any file or folder in the host's default app\n→ / l  step into a folder or open a file\n← / h / Backspace  parent folder\nTab  files / preview, arrows scroll preview\nDrag over text  copy selection when released\n/  find in this folder    Esc  clear filter\n.  show hidden files     g  go to a path\nHome  first file         End  last file\nB  toggle folder bookmark    b  jump to bookmark\n\nMAKE & EDIT\ne  edit with $EDITOR, defaults to vi\no  open in the host's default app\nn  new file             N  new folder\nr  rename               y  copy selected file or folder\nx  cut selected file or folder\np  paste copy / move, no overwrite\nd  move to system trash, confirmation required\nSpace  play / stop music on the host\nF5  refresh folder\n\nSHARED SESSION\ns  SSH connection and QR code\nCtrl+B then %  split left / right\nCtrl+B then \"  split top / bottom\nCtrl+B then c  new shell tab\nCtrl+B then arrows  switch panes\nCtrl+B then n / p  next / previous tab\nCtrl+B then d  detach, leave session running\n\n?  this guide    q  close file manager\nSSH users share control and your OS permissions.`);
+    dialog("A tiny field guide", `FILES\n↑ ↓ or j k  choose a file\nEnter  open in the host's default app\nMedia-only folder / file inside  open a playlist\n→ / l  step into a folder or open a file\n← / h / Backspace  parent folder\nTab  files / preview, arrows scroll preview\nDrag over text  copy selection when released\n/  find in this folder    Esc  clear filter\n.  show hidden files     g  go to a path\nHome  first file         End  last file\nB  toggle folder bookmark    b  jump to bookmark\n\nMAKE & EDIT\ne  edit with $EDITOR, defaults to vi\no  open in the host's default app\nn  new file             N  new folder\nr  rename               y  copy selected file or folder\nx  cut selected file or folder\np  paste copy / move, no overwrite\nd  move to system trash, confirmation required\nSpace  play / stop music on the host\nF5  refresh folder\n\nSHARED SESSION\ns  SSH connection and QR code\nCtrl+B then %  split left / right\nCtrl+B then \"  split top / bottom\nCtrl+B then c  new shell tab\nCtrl+B then arrows  switch panes\nCtrl+B then n / p  next / previous tab\nCtrl+B then d  detach, leave session running\n\n?  this guide    q  close file manager\nSSH users share control and your OS permissions.`);
   }
   function share() {
     const uri = process.env.CUTE_SSH_URI;

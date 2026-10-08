@@ -20,6 +20,7 @@ A cat-sized OpenTUI file manager. Peach labels, mint selection, compact panels, 
 - Press `B` to add or remove the current folder's bookmark. Press `b` to jump to one, or click it in the places sidebar.
 - Preview PNG, JPEG, WebP and GIF using OpenTUI's native image decoder. tmux uses terminal blocks, so images also work over SSH.
 - Read music tags and a real waveform. Space starts or stops playback with ffplay.
+- Open audio/video-only folders as playlists in the host's default player. Select a file inside to start the playlist there.
 - Press `e` to edit text with `$EDITOR`, with `vi` as the fallback. Enter opens any selected file or folder in the host's default app. Press `o` to open any selected file externally.
 - Create files and folders, rename, copy, cut and paste. Existing files are protected. Moving to system trash uses a compact confirmation with Cancel selected by default.
 - Split panes and open shell tabs with tmux. The Rust SSH server attaches clients to that same session, including the running editor.
@@ -59,10 +60,15 @@ Bookmarks persist in `$XDG_DATA_HOME/pocket/bookmarks.sqlite`, or `~/.local/shar
 
 Videos such as MKV and MP4, PDFs, office documents, archives and unrecognized binary files open using the host's file associations. Nothing launches just from selecting a file. Pocket stays responsive while the external app runs, and the app stays independent of Pocket. External windows and playback appear on the host, not the SSH client; the host needs a desktop session and an associated application.
 
-For example, make mpv the host's default for MP4 and MKV:
+`Enter` or `o` on a folder containing only recognized audio/video files opens a playlist in natural filename order. Inside that folder, opening a file starts there, continues through the later files, then wraps to the earlier ones. Hidden and filtered siblings are included. Images, non-media files, subfolders or an empty folder keep normal default-app opening; folders are not scanned recursively.
+
+Pocket writes private `.m3u8` playlists in the system temporary directory and opens them using the host's playlist file association. They remain available after Pocket exits and rely on OS temporary-file cleanup.
+
+For example, make mpv the host's default for MP4, MKV and playlists:
 
 ```sh
 xdg-mime default mpv.desktop video/mp4 video/x-matroska
+xdg-mime default mpv.desktop audio/x-mpegurl audio/mpegurl application/x-mpegurl application/vnd.apple.mpegurl
 ```
 
 ## Join from another device
@@ -106,7 +112,7 @@ Headless mode prints the pairing password to standard output. Keep that output p
 | Key | Action |
 | --- | --- |
 | Arrows, j / k | Navigate files |
-| Enter | Open any selected file or folder in the host's default app |
+| Enter | Open in the host's default app; media-only folders and files inside them open a playlist |
 | Right, l | Step into a folder or open a file |
 | Left, h, Backspace | Parent folder |
 | Tab | Switch files and preview focus |
