@@ -13,7 +13,6 @@ test.skipIf(process.env.POCKET_SSH_TEST !== "1")("two SSH clients share files, e
   const directory = await mkdtemp(join(tmpdir(), "pocket-integration-"));
   let server: ReturnType<typeof Bun.spawn> | undefined;
   const clients: ReturnType<typeof Bun.spawn>[] = [];
-  const outputs: { text: string }[] = [];
   try {
     const folder = join(directory, "files"); await mkdir(folder);
     await Bun.write(join(folder, "hello.txt"), "original\n");
@@ -27,9 +26,13 @@ test.skipIf(process.env.POCKET_SSH_TEST !== "1")("two SSH clients share files, e
     await waitFor(() => log.includes("Pairing password:"), "Server did not start");
     const port = log.match(/ssh -t -p (\d+)/)![1]!;
     const password = log.match(/Pairing password: ([a-f0-9]+)/)![1]!;
+    const screen = async () => {
+      const capture = Bun.spawn(["tmux", "-L", `pocket-${server!.pid}`, "capture-pane", "-p"], { stdout: "pipe", stderr: "ignore" });
+      return new Response(capture.stdout).text();
+    };
     const args = ["ssh", "-F", "/dev/null", "-x", "-tt", "-o", "StrictHostKeyChecking=accept-new", "-o", `UserKnownHostsFile=${directory}/known_hosts`, "-o", "IdentitiesOnly=yes", "-o", "LogLevel=ERROR", "-p", port];
     const connect = (extra: string[], env = process.env) => {
-      const output = { text: "" }; outputs.push(output);
+      const output = { text: "" };
       const client = Bun.spawn([...args, ...extra, "pocket@127.0.0.1"], {
         env,
         terminal: { cols: 110, rows: 32, data(_terminal, bytes) { output.text += new TextDecoder().decode(bytes); } },
@@ -48,21 +51,34 @@ test.skipIf(process.env.POCKET_SSH_TEST !== "1")("two SSH clients share files, e
     await waitFor(() => second.output.text.includes("New file"), "Dialog was not shared with the second client");
     first.client.terminal!.write("shared.txt\r");
     await waitFor(() => Bun.file(join(folder, "shared.txt")).exists(), "SSH file creation failed");
+    await waitFor(async () => !(await screen()).includes("New file"), "File creation dialog did not close");
     second.client.terminal!.write("e");
     await waitFor(async () => (await Bun.file(join(folder, "shared.txt")).text()).includes("edited through SSH"), "$EDITOR did not receive the selected file");
-    await Bun.sleep(150);
+    await waitFor(async () => (await screen()).includes("edited through SSH"), "Editor did not restore the preview");
     first.client.terminal!.write("s");
     await waitFor(() => second.output.text.includes("Pairing password for this server run"), "Share dialog was not broadcast");
     expect(second.output.text).toContain("ssh://pocket@127.0.0.1:");
     expect(second.output.text).toContain("Host key fingerprint");
-    const beforeEscape = second.output.text.length;
     first.client.terminal!.write("\x1b");
-    await waitFor(() => second.output.text.slice(beforeEscape).includes("files"), "Escape did not close the shared dialog");
+    await waitFor(async () => !(await screen()).includes("Join the same pocket"), "Escape did not close the shared dialog");
     first.client.kill(); first.client.terminal!.close(); await first.client.exited;
     second.client.terminal!.resize(84, 25);
-    second.client.terminal!.write("n"); await Bun.sleep(120);
+    second.client.terminal!.write("n");
+    await waitFor(async () => (await screen()).includes("New file"), "Remaining client could not open a dialog");
     second.client.terminal!.write("after-disconnect.txt\r");
-    await waitFor(() => Bun.file(join(folder, "after-disconnect.txt")).exists(), "Session died when first client disconnected");
+    await waitFor(() => Bun.file(join(folder, "after-disconnect.txt")).exists(), "Remaining SSH client could not create a file after disconnect");
+    await waitFor(async () => !(await screen()).includes("New file"), "Second file creation dialog did not close");
+    second.client.terminal!.write("\x02%");
+    await waitFor(async () => {
+      const panes = Bun.spawn(["tmux", "-L", `pocket-${server!.pid}`, "list-panes", "-F", "#{pane_id}"], { stdout: "pipe", stderr: "ignore" });
+      return (await new Response(panes.stdout).text()).trim().split("\n").length === 2;
+    }, "Multiplexer did not split");
+    const panes = Bun.spawn(["tmux", "-L", `pocket-${server.pid}`, "list-panes", "-F", "#{pane_id}"], { stdout: "pipe", stderr: "ignore" });
+    expect((await new Response(panes.stdout).text()).trim().split("\n").length).toBe(2);
+    second.client.terminal!.write("printf 'hello from a split pane' > shell-pane.txt\r");
+    await waitFor(() => Bun.file(join(folder, "shell-pane.txt")).exists(), "Multiplexer shell pane did not accept input");
+    const fingerprint = Bun.spawn(["ssh-keygen", "-lf", join(directory, "known_hosts")], { stdout: "pipe", stderr: "ignore" });
+    expect(await new Response(fingerprint.stdout).text()).toContain(log.match(/Host key: (SHA256:\S+)/)![1]!);
     const reject = Bun.spawn([...args.slice(0, -2), "-p", port, "-o", "BatchMode=yes", "-o", "PreferredAuthentications=none", "root@127.0.0.1"], { stdout: "ignore", stderr: "ignore" });
     expect(await reject.exited).not.toBe(0);
     const exec = Bun.spawn(["ssh", "-F", "/dev/null", "-o", "StrictHostKeyChecking=yes", "-o", `UserKnownHostsFile=${directory}/known_hosts`, "-o", "BatchMode=yes", "-i", join(directory, "client"), "-p", port, "pocket@127.0.0.1", "touch", join(folder, "should-not-exist")], { stdout: "ignore", stderr: "ignore" });
