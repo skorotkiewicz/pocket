@@ -7,6 +7,9 @@ export const kind = (path: string) => {
   const ext = extname(path).toLowerCase();
   if ([".png", ".jpg", ".jpeg", ".webp", ".gif"].includes(ext)) return "image";
   if ([".mp3", ".flac", ".wav", ".ogg", ".m4a", ".opus", ".aac"].includes(ext)) return "music";
+  if ([".mkv", ".mp4", ".m4v", ".mov", ".avi", ".webm", ".mpg", ".mpeg", ".wmv", ".flv", ".3gp", ".ogv",
+    ".pdf", ".epub", ".doc", ".docx", ".odt", ".xls", ".xlsx", ".ods", ".ppt", ".pptx", ".odp", ".rtf",
+    ".svg", ".html", ".htm", ".zip", ".rar", ".7z", ".tar", ".gz", ".bz2", ".xz", ".iso"].includes(ext)) return "external";
   return "text";
 };
 export const size = (bytes: number) => bytes < 1024 ? `${bytes} B` : bytes < 1024 ** 2 ? `${(bytes / 1024).toFixed(1)} KB` : `${(bytes / 1024 ** 2).toFixed(1)} MB`;
@@ -65,10 +68,25 @@ async function moveEntry(source: string, target: string) {
   return target;
 }
 
+export async function openExternal(path: string) {
+  const gio = Bun.which("gio"), opener = gio ?? Bun.which("xdg-open");
+  if (!opener) throw new Error("Install gio or xdg-utils to open files in the host's default app.");
+  const command = gio ? [gio, "open", "--", resolve(path)] : [opener, resolve(path)];
+  const child = Bun.spawn(command, { stdin: "ignore", stdout: "ignore", stderr: "ignore", detached: true });
+  child.unref();
+  const code = await child.exited;
+  if (code) throw new Error(`Host opener exited with status ${code}. Check the default app and host desktop session.`);
+}
+
+export const BINARY_PREVIEW = "Binary file.\nEnter in files or o opens the host's default app.";
 export async function textPreview(path: string) {
   const bytes = new Uint8Array(await Bun.file(path).slice(0, 64 * 1024).arrayBuffer());
-  if (bytes.includes(0)) return "Binary file. Open with an external application.";
-  const text = clean(new TextDecoder().decode(bytes));
+  if (bytes.includes(0)) return BINARY_PREVIEW;
+  // ponytail: sniff only the first 64 KB as UTF-8; use MIME/charset detection if other encodings matter.
+  let decoded: string;
+  try { decoded = new TextDecoder("utf-8", { fatal: true }).decode(bytes, { stream: bytes.length === 64 * 1024 }); }
+  catch { return BINARY_PREVIEW; }
+  const text = clean(decoded);
   return text.split("\n").slice(0, 500).map((line, i) => `${String(i + 1).padStart(4)}  ${line.replace(/\t/g, "  ")}`).join("\n") + (bytes.length === 64 * 1024 ? "\n… Preview limited to 64 KB" : "");
 }
 

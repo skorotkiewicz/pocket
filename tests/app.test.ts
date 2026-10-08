@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { ImageRenderable, InputRenderable, SelectRenderable, TabSelectRenderable } from "@opentui/core";
 import { createTestRenderer } from "@opentui/core/testing";
 import { buildApp } from "../src/ui";
-import { childPath, create, copyInto, moveInto, renameEntry, entries, textPreview, waveform, musicPreview } from "../src/files";
+import { childPath, create, copyInto, moveInto, renameEntry, entries, textPreview, BINARY_PREVIEW, waveform, musicPreview } from "../src/files";
 
 async function fixture() {
   const directory = await mkdtemp(join(tmpdir(), "pocket-test-"));
@@ -51,6 +51,10 @@ test("file operations protect existing content, links and unusual names", async 
     expect(await textPreview(join(directory, "hello.txt"))).toContain("   1  Hello, pocket!");
     await Bun.write(join(directory, "binary"), new Uint8Array([0, 1, 2]));
     expect(await textPreview(join(directory, "binary"))).toContain("Binary file");
+    await Bun.write(join(directory, "invalid-utf8"), new Uint8Array([0xff, 0xfe]));
+    expect(await textPreview(join(directory, "invalid-utf8"))).toBe(BINARY_PREVIEW);
+    await Bun.write(join(directory, "utf8-boundary"), "a".repeat(64 * 1024 - 1) + "猫");
+    expect(await textPreview(join(directory, "utf8-boundary"))).not.toBe(BINARY_PREVIEW);
     const samples = new Float32Array([0, 0.2, 0.5, 1]);
     expect(waveform(new Uint8Array(samples.buffer), 4)).toBe("▁▂▄█");
   } finally { await rm(directory, { recursive: true, force: true }); }
@@ -461,4 +465,65 @@ test("new file, new folder, rename and go-to prompts are compact, centered and k
     app.share(); await setup.renderOnce();
     expect(setup.renderer.root.findDescendantById("dialog")!.height).toBe(30);
   } finally { setup.renderer.destroy(); await rm(directory, { recursive: true, force: true }); }
+});
+
+test("Enter opens external and binary files on the host; o opens any file and reports launcher failures", async () => {
+  const directory = await fixture();
+  const setup = await createTestRenderer({ width: 110, height: 30 });
+  const spawn = Bun.spawn, oldEditor = process.env.EDITOR;
+  let available: string | undefined = "gio", code = 0;
+  const which = spyOn(Bun, "which").mockImplementation(name => name === available ? `/fake/${name}` : null);
+  const launch = spyOn(Bun, "spawn").mockImplementation((command: unknown) => {
+    if (!Array.isArray(command)) throw new Error("Unexpected subprocess in host-opener test.");
+    if (command[0] === "/fake/gio" || command[0] === "/fake/xdg-open") {
+      return spawn(["sh", "-c", `exit ${code}`], { stdin: "ignore", stdout: "ignore", stderr: "ignore", detached: true });
+    }
+    if (command[0] === "sh") return spawn(command, { stdin: "ignore", stdout: "ignore", stderr: "ignore" });
+    throw new Error("Unexpected subprocess in host-opener test.");
+  });
+  async function waitFor(check: () => boolean) {
+    for (let attempt = 0; attempt < 100; attempt++) {
+      await Bun.sleep(10); await setup.renderOnce(); if (check()) return;
+    }
+    throw new Error("Host opener did not finish.");
+  }
+  try {
+    process.env.EDITOR = "true";
+    const names = ["a 'quote' $name.mkv", "video.MP4", "document.pdf", "binary", "invalid.dat"];
+    for (const name of names) await Bun.write(join(directory, name), name === "binary" ? new Uint8Array([0, 1]) : name === "invalid.dat" ? new Uint8Array([0xff, 0xfe]) : "not a text preview");
+    const app = buildApp(setup.renderer, directory, ":memory:"); await app.ready;
+    for (const [index, name] of names.entries()) {
+      app.list.setSelectedIndex(app.list.options.findIndex(option => option.value.name === name));
+      expect(launch.mock.calls.length).toBe(index);
+      if (index === 1) setup.mockInput.pressArrow("right");
+      else if (index === 2) setup.mockInput.pressKey("l");
+      else setup.mockInput.pressEnter();
+      await waitFor(() => setup.captureCharFrame().includes(`Opened ${name}`));
+      expect(launch.mock.calls.at(-1)?.[0]).toEqual(["/fake/gio", "open", "--", join(directory, name)]);
+      expect(launch.mock.calls.at(-1)?.[1]).toEqual({ stdin: "ignore", stdout: "ignore", stderr: "ignore", detached: true });
+    }
+    expect(setup.renderer.isDestroyed).toBe(false);
+    const text = join(directory, "hello.txt");
+    app.list.setSelectedIndex(app.list.options.findIndex(option => option.value.path === text));
+    setup.mockInput.pressEnter();
+    await waitFor(() => setup.captureCharFrame().includes("Back from the editor"));
+    expect(launch.mock.calls.at(-1)?.[0]).toEqual(["sh", "-c", 'exec true "$1"', "pocket-editor", text]);
+    setup.mockInput.pressTab(); setup.mockInput.pressKey("o");
+    await waitFor(() => setup.captureCharFrame().includes("Opened hello.txt"));
+    expect(launch.mock.calls.at(-1)?.[0]).toEqual(["/fake/gio", "open", "--", text]);
+    available = "xdg-open"; setup.mockInput.pressKey("o");
+    await waitFor(() => launch.mock.calls.at(-1)?.[0]?.[0] === "/fake/xdg-open");
+    expect(launch.mock.calls.at(-1)?.[0]).toEqual(["/fake/xdg-open", text]);
+    code = 2; setup.mockInput.pressKey("o");
+    await waitFor(() => setup.captureCharFrame().includes("Host opener exited with status 2"));
+    expect(setup.renderer.isDestroyed).toBe(false);
+    available = undefined;
+    const calls = launch.mock.calls.length; setup.mockInput.pressKey("o");
+    await waitFor(() => setup.captureCharFrame().includes("Install gio or xdg-utils"));
+    expect(launch.mock.calls.length).toBe(calls);
+  } finally {
+    launch.mockRestore(); which.mockRestore();
+    if (oldEditor === undefined) delete process.env.EDITOR; else process.env.EDITOR = oldEditor;
+    setup.renderer.destroy(); await rm(directory, { recursive: true, force: true });
+  }
 });

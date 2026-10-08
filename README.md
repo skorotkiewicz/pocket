@@ -6,14 +6,14 @@ A cat-sized OpenTUI file manager. Peach labels, mint selection, compact panels, 
 - Press `B` to add or remove the current folder's bookmark. Press `b` to jump to one, or click it in the places sidebar.
 - Preview PNG, JPEG, WebP and GIF using OpenTUI's native image decoder. tmux uses terminal blocks, so images also work over SSH.
 - Read music tags and a real waveform. Space starts or stops playback with ffplay.
-- Edit with `$EDITOR`, with `vi` as the fallback. The file manager restores itself when the editor exits.
+- Edit text with `$EDITOR`, with `vi` as the fallback. Enter opens videos, documents and other binary files in the host's default app. Press `o` to open any selected file externally.
 - Create files and folders, rename, copy, cut and paste. Existing files are protected. Moving to system trash uses a compact confirmation with Cancel selected by default.
 - Split panes and open shell tabs with tmux. The Rust SSH server attaches clients to that same session, including the running editor.
 - Press `s` for an SSH QR code, pairing password and host fingerprint.
 
 ## Run
 
-Linux is the supported host. Install Bun, Rust, tmux 3.3 or newer and GNU coreutils. FFmpeg enables audio metadata, waveform and playback. `gio`, supplied by GLib, enables system trash.
+Linux is the supported host. Install Bun, Rust, tmux 3.3 or newer and GNU coreutils. FFmpeg enables audio metadata, waveform and playback. `gio`, supplied by GLib, enables system trash and default-app opening. `xdg-open` from xdg-utils is the fallback opener.
 
 For example, on Debian or Ubuntu:
 
@@ -42,6 +42,14 @@ The sidebar disappears on smaller terminals. Below 72 columns, Tab switches betw
 New file/folder, Rename and Go to folder use small centered input dialogs. In the trash confirmation, use Left/Right or Tab to choose, Enter to activate, or Esc to cancel. Both choices are clickable; trash failures leave the dialog open for retry.
 
 Bookmarks persist in `$XDG_DATA_HOME/pocket/bookmarks.sqlite`, or `~/.local/share/pocket/bookmarks.sqlite` when that variable is unset. Pressing `B` again removes the bookmark without deleting the folder. The bookmark picker also works on narrow terminals where the sidebar is hidden.
+
+Videos such as MKV and MP4, PDFs, office documents, archives and unrecognized binary files open using the host's file associations. Nothing launches just from selecting a file. Pocket stays responsive while the external app runs, and the app stays independent of Pocket. External windows and playback appear on the host, not the SSH client; the host needs a desktop session and an associated application.
+
+For example, make mpv the host's default for MP4 and MKV:
+
+```sh
+xdg-mime default mpv.desktop video/mp4 video/x-matroska
+```
 
 ## Join from another device
 
@@ -84,7 +92,7 @@ Headless mode prints the pairing password to standard output. Keep that output p
 | Key | Action |
 | --- | --- |
 | Arrows, j / k | Navigate files |
-| Enter, right, l | Open folder, edit text, preview image or play music |
+| Enter, right, l | Open folder, edit text, preview image, play music or open other files in the host's default app |
 | Left, h, Backspace | Parent folder |
 | Tab | Switch files and preview focus |
 | Enter in preview | Copy displayed preview text to the terminal clipboard |
@@ -96,6 +104,7 @@ Headless mode prints the pairing password to standard output. Keep that output p
 | B | Add / remove the current folder's bookmark |
 | b | Choose a bookmark and press Enter to jump |
 | e | Edit with `$EDITOR` |
+| o | Open the selected file in the host's default app, also from preview |
 | n / Shift+n | New file / folder |
 | r | Rename |
 | y, then p | Copy, then paste into the current folder |
