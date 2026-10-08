@@ -12,7 +12,7 @@ A cat-sized OpenTUI file manager. Peach labels, mint selection, compact panels, 
 
 ## Run
 
-Linux is the supported host. Install Bun, Rust, tmux and GNU coreutils. FFmpeg enables audio metadata, waveform and playback. `gio`, supplied by GLib, enables system trash.
+Linux is the supported host. Install Bun, Rust, tmux 3.3 or newer and GNU coreutils. FFmpeg enables audio metadata, waveform and playback. `gio`, supplied by GLib, enables system trash.
 
 For example, on Debian or Ubuntu:
 
@@ -36,7 +36,7 @@ bun run dev
 bun index.ts ~/Documents
 ```
 
-The sidebar disappears on smaller terminals. Below 72 columns, Tab switches between the file list and preview.
+The sidebar disappears on smaller terminals. Below 72 columns, Tab switches between the file list and preview. With the preview focused, Enter copies its displayed text using OSC 52. Your terminal must allow clipboard writes.
 
 ## Join from another device
 
@@ -82,6 +82,7 @@ Headless mode prints the pairing password to standard output. Keep that output p
 | Enter, right, l | Open folder, edit text, preview image or play music |
 | Left, h, Backspace | Parent folder |
 | Tab | Switch files and preview focus |
+| Enter in preview | Copy displayed preview text to the terminal clipboard |
 | / | Filter this folder's file names |
 | Esc | Close dialog or clear filter |
 | . | Show hidden files |
@@ -111,6 +112,6 @@ cargo clippy --manifest-path server/Cargo.toml -- -D warnings
 bun run ssh:test
 ```
 
-The SSH smoke test starts a real Rust server and two real SSH clients. It checks key and password authentication, shared file creation, `$EDITOR`, the share dialog, resizing, disconnect survival, rejected unauthenticated access and rejected SSH exec.
+The SSH smoke test starts a real Rust server and two real SSH clients. It checks key and password authentication, shared file creation, `$EDITOR`, preview clipboard forwarding, the share dialog, resizing, disconnect survival, rejected unauthenticated access and rejected SSH exec.
 
 Text previews read at most 64 KB and show up to 500 lines. Image files larger than 32 MB are not decoded. Waveforms sample the first 30 seconds. Directory changes made outside Pocket appear after F5.

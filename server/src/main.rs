@@ -470,6 +470,8 @@ async fn main() -> Result<()> {
         ],
         vec!["set-option", "-g", "mouse", "on"],
         vec!["set-option", "-s", "escape-time", "10"],
+        vec!["set-option", "-s", "set-clipboard", "on"],
+        vec!["set-option", "-g", "allow-passthrough", "on"],
         vec!["set-option", "-g", "default-terminal", "tmux-256color"],
         vec!["set-option", "-g", "window-size", "smallest"],
     ] {

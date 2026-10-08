@@ -1,4 +1,4 @@
-import { test, expect } from "bun:test";
+import { test, expect, spyOn } from "bun:test";
 import { mkdtemp, rm, mkdir, symlink, lstat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -122,4 +122,33 @@ test("image previews decode to terminal blocks and music previews read real tags
       expect(content).toContain("█");
     }
   } finally { setup.renderer.destroy(); await rm(directory, { recursive: true, force: true }); }
+});
+
+test("Enter copies ready preview text after keyboard or mouse focus and reports clipboard failures", async () => {
+  const directory = await fixture();
+  const setup = await createTestRenderer({ width: 90, height: 26 });
+  const copy = spyOn(setup.renderer, "copyToClipboardOSC52").mockReturnValue(true);
+  try {
+    const app = buildApp(setup.renderer, directory); await app.ready;
+    app.list.setSelectedIndex(app.list.options.findIndex(option => option.value.name === "hello.txt"));
+    setup.mockInput.pressTab();
+    setup.mockInput.pressEnter();
+    expect(copy).not.toHaveBeenCalled();
+    await setup.waitForFrame(frame => frame.includes("Hello, pocket!"));
+    setup.mockInput.pressEnter();
+    expect(copy).toHaveBeenCalledWith(await textPreview(join(directory, "hello.txt")));
+    await setup.renderOnce();
+    expect(setup.captureCharFrame()).toContain("Preview text sent");
+    setup.mockInput.pressTab();
+    const panel = setup.renderer.root.findDescendantById("preview")!;
+    await setup.mockMouse.click(panel.x + 2, panel.y);
+    copy.mockReturnValue(false);
+    setup.mockInput.pressEnter();
+    expect(copy).toHaveBeenCalledTimes(2);
+    await setup.renderOnce();
+    expect(setup.captureCharFrame()).toContain("Terminal clipboard unavailable");
+  } finally {
+    copy.mockRestore(); setup.renderer.destroy();
+    await rm(directory, { recursive: true, force: true });
+  }
 });

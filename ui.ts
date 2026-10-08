@@ -18,7 +18,7 @@ export function buildApp(renderer: CliRenderer, initialPath: string) {
   let previewVersion = 0, loadVersion = 0, disposed = false, clipboard: string | undefined;
   let modal: BoxRenderable | undefined, prompt: InputRenderable | undefined;
   let modalMessage: TextRenderable | undefined;
-  let previewFocused = false;
+  let previewFocused = false, previewReady = false;
   let player: ReturnType<typeof Bun.spawn> | undefined;
   let playingPath: string | undefined;
   const app = new BoxRenderable(renderer, { id: "app", width: "100%", height: "100%", flexDirection: "column", backgroundColor: C.bg });
@@ -54,7 +54,13 @@ export function buildApp(renderer: CliRenderer, initialPath: string) {
     },
   });
   listPanel.add(list);
-  const previewPanel = new BoxRenderable(renderer, { id: "preview", width: "48%", minWidth: 0, border: true, borderStyle: "rounded", borderColor: C.line, title: " peek inside ", titleColor: C.peach, flexDirection: "column", backgroundColor: C.panel });
+  const previewPanel = new BoxRenderable(renderer, { id: "preview", width: "48%", minWidth: 0, border: true, borderStyle: "rounded", borderColor: C.line, title: " peek inside ", titleColor: C.peach, flexDirection: "column", backgroundColor: C.panel,
+    onMouseDown: () => {
+      if (modal || busy) return;
+      previewFocused = true; preview.focus(); layout();
+      listPanel.borderColor = C.line; previewPanel.borderColor = C.mint;
+    },
+  });
   body.add(previewPanel);
   const metadata = new TextRenderable(renderer, { fg: C.muted, flexShrink: 0, wrapMode: "word" });
   previewPanel.add(metadata);
@@ -112,6 +118,7 @@ export function buildApp(renderer: CliRenderer, initialPath: string) {
   }
   async function refreshPreview() {
     const version = ++previewVersion, entry = selected();
+    previewReady = false;
     image.source = undefined; image.visible = false; preview.visible = true; preview.scrollTo(0);
     previewText.content = entry ? "Taking a peek…" : "No matching files. Esc clears your filter.";
     metadata.content = "";
@@ -131,6 +138,7 @@ export function buildApp(renderer: CliRenderer, initialPath: string) {
         const content = await (kind(entry.path) === "music" ? musicPreview(entry.path) : textPreview(entry.path));
         if (!disposed && version === previewVersion) previewText.content = content;
       }
+      if (!disposed && version === previewVersion) previewReady = true;
     } catch (error) { if (!disposed && version === previewVersion) previewText.content = `Cannot preview: ${clean(String(error))}`; }
   }
   list.on(SelectRenderableEvents.SELECTION_CHANGED, () => run(refreshPreview));
@@ -144,6 +152,12 @@ export function buildApp(renderer: CliRenderer, initialPath: string) {
     else if (kind(entry.path) === "music") toggleMusic();
     else if (kind(entry.path) === "image") { previewFocused = true; preview.focus(); layout(); say("Tab returns to files. Image uses blocks inside tmux."); }
     else await edit();
+  }
+  function copyPreview() {
+    if (image.visible) { say("Image previews cannot be copied as text.", true); return; }
+    if (!previewReady) { say("No preview text ready to copy.", true); return; }
+    const copied = renderer.copyToClipboardOSC52(previewText.plainText);
+    say(copied ? "Preview text sent to your terminal clipboard." : "Terminal clipboard unavailable. Enable OSC 52 in your terminal.", !copied);
   }
   async function edit() {
     const entry = selected();
@@ -230,7 +244,7 @@ export function buildApp(renderer: CliRenderer, initialPath: string) {
     });
   }
   function help() {
-    dialog("A tiny field guide", `FILES\n↑ ↓ or j k  choose a file\nEnter / → / l  open folder or file\n← / h / Backspace  parent folder\nTab  files / preview, arrows scroll preview\n/  find in this folder    Esc  clear filter\n.  show hidden files     g  go to a path\nHome  first file         End  last file\n\nMAKE & EDIT\ne  edit with $EDITOR, defaults to vi\nn  new file             N  new folder\nr  rename               y  copy selected file or folder\np  paste a copy, no overwrite\nd  move to system trash, confirmation required\nSpace  play / stop music on the host\nF5  refresh folder\n\nSHARED SESSION\ns  SSH connection and QR code\nCtrl+B then %  split left / right\nCtrl+B then \"  split top / bottom\nCtrl+B then c  new shell tab\nCtrl+B then arrows  switch panes\nCtrl+B then n / p  next / previous tab\nCtrl+B then d  detach, leave session running\n\n?  this guide    q  close file manager\nSSH users share control and your OS permissions.`);
+    dialog("A tiny field guide", `FILES\n↑ ↓ or j k  choose a file\nEnter / → / l  open folder or file\n← / h / Backspace  parent folder\nTab  files / preview, arrows scroll preview\nEnter in preview  copy displayed text to clipboard\n/  find in this folder    Esc  clear filter\n.  show hidden files     g  go to a path\nHome  first file         End  last file\n\nMAKE & EDIT\ne  edit with $EDITOR, defaults to vi\nn  new file             N  new folder\nr  rename               y  copy selected file or folder\np  paste a copy, no overwrite\nd  move to system trash, confirmation required\nSpace  play / stop music on the host\nF5  refresh folder\n\nSHARED SESSION\ns  SSH connection and QR code\nCtrl+B then %  split left / right\nCtrl+B then \"  split top / bottom\nCtrl+B then c  new shell tab\nCtrl+B then arrows  switch panes\nCtrl+B then n / p  next / previous tab\nCtrl+B then d  detach, leave session running\n\n?  this guide    q  close file manager\nSSH users share control and your OS permissions.`);
   }
   function share() {
     const uri = process.env.CUTE_SSH_URI;
@@ -258,7 +272,10 @@ export function buildApp(renderer: CliRenderer, initialPath: string) {
     if (key.name === "?" || key.sequence === "?") { help(); key.preventDefault(); return; }
     const globalAction = key.name === "s" ? share : key.name === "e" ? edit : key.name === "space" ? toggleMusic : undefined;
     if (globalAction) { key.preventDefault(); run(globalAction); return; }
-    if (previewFocused) return;
+    if (previewFocused) {
+      if (key.name === "return") { key.preventDefault(); copyPreview(); }
+      return;
+    }
     const actions: Record<string, () => void | Promise<unknown>> = {
       e: edit, "/": search, n: () => newEntry(key.shift), N: () => newEntry(true), r: renameSelected, d: trashSelected,
       s: share, ".": () => { hidden = !hidden; filter(); },
