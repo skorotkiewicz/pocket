@@ -40,7 +40,7 @@ export function buildApp(renderer: CliRenderer, initialPath: string) {
   body.add(listPanel);
   const searchInput = new InputRenderable(renderer, {
     id: "search", visible: false, flexShrink: 0,
-    placeholder: "Filter file names…", textColor: C.ink,
+    placeholder: "Filter file names…", placeholderColor: C.ink, textColor: C.ink,
     backgroundColor: C.selected, focusedBackgroundColor: C.selected, cursorColor: C.peach,
   });
   listPanel.add(searchInput);
