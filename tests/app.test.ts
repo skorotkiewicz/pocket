@@ -70,7 +70,7 @@ test("OpenTUI renders, navigates, filters, opens help and creates files", async 
     expect(setup.captureCharFrame()).toContain("pocket");
     expect(setup.captureCharFrame()).toContain("folder/");
     expect(setup.captureCharFrame()).not.toContain(".hidden");
-    setup.mockInput.pressEnter();
+    setup.mockInput.pressArrow("right");
     await Bun.sleep(40);
     expect(app.cwd).toBe(join(directory, "folder"));
     setup.mockInput.pressBackspace();
@@ -141,29 +141,26 @@ test("image previews decode to terminal blocks and music previews read real tags
   } finally { setup.renderer.destroy(); await rm(directory, { recursive: true, force: true }); }
 });
 
-test("Enter copies ready preview text after keyboard or mouse focus and reports clipboard failures", async () => {
+test("selecting preview text copies it and reports clipboard failures", async () => {
   const directory = await fixture();
   const setup = await createTestRenderer({ width: 90, height: 26 });
   const copy = spyOn(setup.renderer, "copyToClipboardOSC52").mockReturnValue(true);
   try {
     const app = buildApp(setup.renderer, directory, ":memory:"); await app.ready;
     app.list.setSelectedIndex(app.list.options.findIndex(option => option.value.name === "hello.txt"));
-    setup.mockInput.pressTab();
-    setup.mockInput.pressEnter();
-    expect(copy).not.toHaveBeenCalled();
     await setup.waitForFrame(frame => frame.includes("Hello, pocket!"));
-    setup.mockInput.pressEnter();
-    expect(copy).toHaveBeenCalledWith(await textPreview(join(directory, "hello.txt")));
-    await setup.renderOnce();
-    expect(setup.captureCharFrame()).toContain("Preview text sent");
-    setup.mockInput.pressTab();
-    const panel = setup.renderer.root.findDescendantById("preview")!;
-    await setup.mockMouse.click(panel.x + 2, panel.y);
-    copy.mockReturnValue(false);
-    setup.mockInput.pressEnter();
+    const text = "Hello, pocket!", lines = setup.captureCharFrame().split("\n");
+    const y = lines.findIndex(line => line.includes(text)), x = lines[y]!.indexOf(text);
+    for (const success of [true, false]) {
+      copy.mockReturnValue(success);
+      await setup.mockMouse.pressDown(x, y);
+      await setup.mockMouse.moveTo(x + text.length - 1, y);
+      await setup.mockMouse.release(x + text.length - 1, y);
+      expect(copy).toHaveBeenLastCalledWith(text);
+      await setup.renderOnce();
+      expect(setup.captureCharFrame()).toContain(success ? "Selected text sent" : "Terminal clipboard unavailable");
+    }
     expect(copy).toHaveBeenCalledTimes(2);
-    await setup.renderOnce();
-    expect(setup.captureCharFrame()).toContain("Terminal clipboard unavailable");
   } finally {
     copy.mockRestore(); setup.renderer.destroy();
     await rm(directory, { recursive: true, force: true });
@@ -467,7 +464,7 @@ test("new file, new folder, rename and go-to prompts are compact, centered and k
   } finally { setup.renderer.destroy(); await rm(directory, { recursive: true, force: true }); }
 });
 
-test("Enter opens external and binary files on the host; o opens any file and reports launcher failures", async () => {
+test("Enter opens every file and directory on the host; arrows navigate and e edits", async () => {
   const directory = await fixture();
   const setup = await createTestRenderer({ width: 110, height: 30 });
   const spawn = Bun.spawn, oldEditor = process.env.EDITOR;
@@ -489,26 +486,35 @@ test("Enter opens external and binary files on the host; o opens any file and re
   }
   try {
     process.env.EDITOR = "true";
-    const names = ["a 'quote' $name.mkv", "video.MP4", "document.pdf", "binary", "invalid.dat"];
+    const names = ["a 'quote' $name.mkv", "video.MP4", "document.pdf", "binary", "invalid.dat", "song.flac"];
     for (const name of names) await Bun.write(join(directory, name), name === "binary" ? new Uint8Array([0, 1]) : name === "invalid.dat" ? new Uint8Array([0xff, 0xfe]) : "not a text preview");
+    await Bun.write(join(directory, "pixel.png"), Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=", "base64"));
     const app = buildApp(setup.renderer, directory, ":memory:"); await app.ready;
-    for (const [index, name] of names.entries()) {
+    for (const [index, name] of [...names, "pixel.png", "hello.txt", "folder"].entries()) {
       app.list.setSelectedIndex(app.list.options.findIndex(option => option.value.name === name));
-      expect(launch.mock.calls.length).toBe(index);
-      if (index === 1) setup.mockInput.pressArrow("right");
-      else if (index === 2) setup.mockInput.pressKey("l");
-      else setup.mockInput.pressEnter();
-      await waitFor(() => setup.captureCharFrame().includes(`Opened ${name}`));
-      expect(launch.mock.calls.at(-1)?.[0]).toEqual(["/fake/gio", "open", "--", join(directory, name)]);
-      expect(launch.mock.calls.at(-1)?.[1]).toEqual({ stdin: "ignore", stdout: "ignore", stderr: "ignore", detached: true });
+      expect(launch.mock.calls.length).toBe(index * 2);
+      for (const preview of [false, true]) {
+        if (preview) setup.mockInput.pressTab();
+        const calls = launch.mock.calls.length;
+        setup.mockInput.pressEnter();
+        await waitFor(() => setup.captureCharFrame().includes(`Opened ${name}`));
+        expect(launch.mock.calls.length).toBe(calls + 1);
+        expect(launch.mock.calls.at(-1)?.[0]).toEqual(["/fake/gio", "open", "--", join(directory, name)]);
+        expect(launch.mock.calls.at(-1)?.[1]).toEqual({ stdin: "ignore", stdout: "ignore", stderr: "ignore", detached: true });
+      }
+      setup.mockInput.pressTab();
     }
     expect(setup.renderer.isDestroyed).toBe(false);
+    expect(app.cwd).toBe(directory);
+    setup.mockInput.pressArrow("right");
+    await waitFor(() => app.cwd === join(directory, "folder"));
+    setup.mockInput.pressArrow("left"); await waitFor(() => app.cwd === directory);
     const text = join(directory, "hello.txt");
     app.list.setSelectedIndex(app.list.options.findIndex(option => option.value.path === text));
-    setup.mockInput.pressEnter();
+    setup.mockInput.pressKey("e");
     await waitFor(() => setup.captureCharFrame().includes("Back from the editor"));
     expect(launch.mock.calls.at(-1)?.[0]).toEqual(["sh", "-c", 'exec true "$1"', "pocket-editor", text]);
-    setup.mockInput.pressTab(); setup.mockInput.pressKey("o");
+    setup.mockInput.pressTab(); setup.mockInput.pressEnter();
     await waitFor(() => setup.captureCharFrame().includes("Opened hello.txt"));
     expect(launch.mock.calls.at(-1)?.[0]).toEqual(["/fake/gio", "open", "--", text]);
     available = "xdg-open"; setup.mockInput.pressKey("o");

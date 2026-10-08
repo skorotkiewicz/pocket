@@ -2,7 +2,6 @@ import { test, expect } from "bun:test";
 import { mkdtemp, mkdir, chmod, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { textPreview } from "../src/files";
 
 async function waitFor(check: () => boolean | Promise<boolean>, message: string) {
   for (let i = 0; i < 150; i++) { if (await check()) return; await Bun.sleep(40); }
@@ -49,7 +48,7 @@ test.skipIf(process.env.POCKET_SSH_TEST !== "1")("two SSH clients share files, e
     await Bun.write(askpass, '#!/bin/sh\nprintf "%s" "$PAIRING"\n'); await chmod(askpass, 0o700);
     const second = connect(["-o", "PreferredAuthentications=password", "-o", "PubkeyAuthentication=no"], { ...process.env, SSH_ASKPASS: askpass, SSH_ASKPASS_REQUIRE: "force", DISPLAY: ":0", PAIRING: password });
     await waitFor(() => second.output.text.includes("hello.txt"), "Password-authenticated client did not render");
-    first.client.terminal!.write("B\r");
+    first.client.terminal!.write("B\x1b[C");
     await waitFor(async () => (await screen()).split("\n")[1]?.trim() === bookmarkedFolder, "Could not enter the folder to bookmark");
     first.client.terminal!.write("Bb");
     await waitFor(async () => (await screen()).includes("Bookmarks"), "Bookmark picker did not open over SSH");
@@ -64,9 +63,10 @@ test.skipIf(process.env.POCKET_SSH_TEST !== "1")("two SSH clients share files, e
     await waitFor(async () => (await Bun.file(join(folder, "shared.txt")).text()).includes("edited through SSH"), "$EDITOR did not receive the selected file");
     await waitFor(async () => (await screen()).includes("edited through SSH"), "Editor did not restore the preview");
     const beforeCopy = second.output.text.length;
-    const clipboardPayload = Buffer.from(await textPreview(join(folder, "shared.txt"))).toString("base64");
-    second.client.terminal!.write("\t\r");
-    await waitFor(() => second.output.text.slice(beforeCopy).includes(clipboardPayload), "Preview clipboard payload did not reach the SSH terminal");
+    const previewSelection = "edited through SSH", previewLines = (await screen()).split("\n");
+    const previewY = previewLines.findIndex(line => line.includes(previewSelection)), previewX = previewLines[previewY]!.indexOf(previewSelection);
+    second.client.terminal!.write(`\x1b[<0;${previewX + 1};${previewY + 1}M\x1b[<32;${previewX + previewSelection.length};${previewY + 1}M\x1b[<0;${previewX + previewSelection.length};${previewY + 1}m`);
+    await waitFor(() => second.output.text.slice(beforeCopy).includes(Buffer.from(previewSelection).toString("base64")), "Preview selection did not reach the SSH clipboard");
     // Keep focus change and the next action ordered on one SSH connection.
     second.client.terminal!.write("\ts");
     await waitFor(() => second.output.text.includes("Pairing password for this server run"), "Share dialog was not broadcast");

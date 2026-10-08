@@ -24,7 +24,7 @@ export function buildApp(renderer: CliRenderer, initialPath: string, bookmarksFi
   let modal: BoxRenderable | undefined, prompt: InputRenderable | undefined;
   let modalMessage: TextRenderable | undefined;
   let modalHeight = 34, modalCompact = false;
-  let previewFocused = false, previewReady = false;
+  let previewFocused = false;
   let player: ReturnType<typeof Bun.spawn> | undefined;
   let playingPath: string | undefined;
   const app = new BoxRenderable(renderer, { id: "app", width: "100%", height: "100%", flexDirection: "column", backgroundColor: C.bg });
@@ -90,7 +90,7 @@ export function buildApp(renderer: CliRenderer, initialPath: string, bookmarksFi
   const toolbar = new BoxRenderable(renderer, { height: 1, flexShrink: 0, flexDirection: "row", backgroundColor: C.selected });
   app.add(toolbar);
   for (const [label, action] of [
-    [" Enter open ", () => openSelected()], [" e edit ", () => edit()],
+    [" Enter open ", () => openHost()], [" e edit ", () => edit()],
     [" / find ", () => search()], [" n new ", () => newEntry(false)], [" b marks ", () => showBookmarks()],
     [" s SSH ", () => share()], [" ? help ", () => help()],
   ] as const) toolbar.add(new TextRenderable(renderer, { content: label, fg: C.ink, onMouseDown: () => { if (!modal && !busy) run(action); } }));
@@ -145,7 +145,6 @@ export function buildApp(renderer: CliRenderer, initialPath: string, bookmarksFi
   }
   async function refreshPreview() {
     const version = ++previewVersion, entry = selected();
-    previewReady = false;
     image.source = undefined; image.visible = false; preview.visible = true; preview.scrollTo(0);
     previewText.content = entry ? "Taking a peek…" : "No matching files. Esc clears your filter.";
     metadata.content = "";
@@ -157,21 +156,20 @@ export function buildApp(renderer: CliRenderer, initialPath: string, bookmarksFi
       if (entry.directory) {
         const children = await entries(entry.path);
         if (disposed || version !== previewVersion) return;
-        previewText.content = `${children.length} items\n\n${children.slice(0, 150).map(child => `${icon(child)}  ${label(child.name)}${child.directory ? "/" : ""}`).join("\n")}${children.length > 150 ? "\n…" : ""}\n\nEnter to step inside.`;
+        previewText.content = `${children.length} items\n\n${children.slice(0, 150).map(child => `${icon(child)}  ${label(child.name)}${child.directory ? "/" : ""}`).join("\n")}${children.length > 150 ? "\n…" : ""}\n\n→ to step inside. Enter opens the host's file manager.`;
       } else if (kind(entry.path) === "image") {
         if (info.size > 32 * 1024 ** 2) { previewText.content = "Image exceeds the 32 MB preview limit."; return; }
         preview.visible = false; image.visible = true; image.source = entry.path;
       } else if (kind(entry.path) === "external") {
-        previewText.content = "Open with the host's default app.\n\nEnter in files or o to open.\n\nThe app appears on the host, not the SSH client.";
+        previewText.content = "Open with the host's default app.\n\nEnter or o to open.\n\nThe app appears on the host, not the SSH client.";
       } else {
         const content = await (kind(entry.path) === "music" ? musicPreview(entry.path) : textPreview(entry.path));
         if (!disposed && version === previewVersion) previewText.content = content;
       }
-      if (!disposed && version === previewVersion) previewReady = true;
     } catch (error) { if (!disposed && version === previewVersion) previewText.content = `Cannot preview: ${clean(String(error))}`; }
   }
   list.on(SelectRenderableEvents.SELECTION_CHANGED, () => run(refreshPreview));
-  list.on(SelectRenderableEvents.ITEM_SELECTED, () => run(openSelected));
+  list.on(SelectRenderableEvents.ITEM_SELECTED, () => run(openHost));
 
   async function openSelected() {
     if (busy || modal) return;
@@ -202,11 +200,6 @@ export function buildApp(renderer: CliRenderer, initialPath: string, bookmarksFi
   function copySelection() {
     const text = renderer.getSelection()?.getSelectedText();
     if (text) copyText(text, "Selected text");
-  }
-  function copyPreview() {
-    if (image.visible) { say("Image previews cannot be copied as text.", true); return; }
-    if (!previewReady) { say("No preview text ready to copy.", true); return; }
-    copyText(previewText.plainText, "Preview text");
   }
   async function edit(entry = selected()) {
     if (!entry || entry.directory || busy) return;
@@ -391,7 +384,7 @@ export function buildApp(renderer: CliRenderer, initialPath: string, bookmarksFi
     });
   }
   function help() {
-    dialog("A tiny field guide", `FILES\n↑ ↓ or j k  choose a file\nEnter / → / l  open folder or file\n← / h / Backspace  parent folder\nTab  files / preview, arrows scroll preview\nEnter in preview  copy displayed text to clipboard\nDrag over text  copy selection when released\n/  find in this folder    Esc  clear filter\n.  show hidden files     g  go to a path\nHome  first file         End  last file\nB  toggle folder bookmark    b  jump to bookmark\n\nMAKE & EDIT\ne  edit with $EDITOR, defaults to vi\no  open in the host's default app\nn  new file             N  new folder\nr  rename               y  copy selected file or folder\nx  cut selected file or folder\np  paste copy / move, no overwrite\nd  move to system trash, confirmation required\nSpace  play / stop music on the host\nF5  refresh folder\n\nSHARED SESSION\ns  SSH connection and QR code\nCtrl+B then %  split left / right\nCtrl+B then \"  split top / bottom\nCtrl+B then c  new shell tab\nCtrl+B then arrows  switch panes\nCtrl+B then n / p  next / previous tab\nCtrl+B then d  detach, leave session running\n\n?  this guide    q  close file manager\nSSH users share control and your OS permissions.`);
+    dialog("A tiny field guide", `FILES\n↑ ↓ or j k  choose a file\nEnter  open any file or folder in the host's default app\n→ / l  step into a folder or open a file\n← / h / Backspace  parent folder\nTab  files / preview, arrows scroll preview\nDrag over text  copy selection when released\n/  find in this folder    Esc  clear filter\n.  show hidden files     g  go to a path\nHome  first file         End  last file\nB  toggle folder bookmark    b  jump to bookmark\n\nMAKE & EDIT\ne  edit with $EDITOR, defaults to vi\no  open in the host's default app\nn  new file             N  new folder\nr  rename               y  copy selected file or folder\nx  cut selected file or folder\np  paste copy / move, no overwrite\nd  move to system trash, confirmation required\nSpace  play / stop music on the host\nF5  refresh folder\n\nSHARED SESSION\ns  SSH connection and QR code\nCtrl+B then %  split left / right\nCtrl+B then \"  split top / bottom\nCtrl+B then c  new shell tab\nCtrl+B then arrows  switch panes\nCtrl+B then n / p  next / previous tab\nCtrl+B then d  detach, leave session running\n\n?  this guide    q  close file manager\nSSH users share control and your OS permissions.`);
   }
   function share() {
     const uri = process.env.CUTE_SSH_URI;
@@ -430,12 +423,9 @@ export function buildApp(renderer: CliRenderer, initialPath: string, bookmarksFi
     if (key.name === "escape") { searchInput.visible = false; query = ""; filter(); previewFocused = false; list.focus(); layout(); key.preventDefault(); return; }
     if (key.name === "q") { renderer.destroy(); return; }
     if (key.name === "?" || key.sequence === "?") { help(); key.preventDefault(); return; }
-    const globalAction = key.name === "/" ? search : key.name === "s" ? share : key.name === "e" ? edit : key.name === "o" ? openHost : key.name === "space" ? toggleMusic : undefined;
+    const globalAction = key.name === "/" ? search : key.name === "s" ? share : key.name === "e" ? edit : key.name === "o" || key.name === "return" ? openHost : key.name === "space" ? toggleMusic : undefined;
     if (globalAction) { key.preventDefault(); run(globalAction); return; }
-    if (previewFocused) {
-      if (key.name === "return") { key.preventDefault(); copyPreview(); }
-      return;
-    }
+    if (previewFocused) return;
     const actions: Record<string, () => void | Promise<unknown>> = {
       e: edit, "/": search, n: () => newEntry(key.shift), N: () => newEntry(true), r: renameSelected, d: trashSelected,
       s: share, ".": () => { hidden = !hidden; filter(); },

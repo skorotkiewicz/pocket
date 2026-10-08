@@ -6,7 +6,7 @@ A cat-sized OpenTUI file manager. Peach labels, mint selection, compact panels, 
 - Press `B` to add or remove the current folder's bookmark. Press `b` to jump to one, or click it in the places sidebar.
 - Preview PNG, JPEG, WebP and GIF using OpenTUI's native image decoder. tmux uses terminal blocks, so images also work over SSH.
 - Read music tags and a real waveform. Space starts or stops playback with ffplay.
-- Edit text with `$EDITOR`, with `vi` as the fallback. Enter opens videos, documents and other binary files in the host's default app. Press `o` to open any selected file externally.
+- Press `e` to edit text with `$EDITOR`, with `vi` as the fallback. Enter opens any selected file or folder in the host's default app. Press `o` to open any selected file externally.
 - Create files and folders, rename, copy, cut and paste. Existing files are protected. Moving to system trash uses a compact confirmation with Cancel selected by default.
 - Split panes and open shell tabs with tmux. The Rust SSH server attaches clients to that same session, including the running editor.
 - Press `s` for an SSH QR code, pairing password and host fingerprint.
@@ -37,7 +37,7 @@ bun run dev
 bun src/index.ts ~/Documents
 ```
 
-The sidebar disappears on smaller terminals. Below 72 columns, Tab switches between the file list and preview. Search uses a one-line field above the file list, so matching files remain visible while you type. With the preview focused, Enter copies its displayed text using OSC 52. Selecting text with the mouse also copies it when you release the button, including the pairing password in the SSH dialog. Your terminal must allow clipboard writes.
+The sidebar disappears on smaller terminals. Below 72 columns, Tab switches between the file list and preview. Search uses a one-line field above the file list, so matching files remain visible while you type. Enter opens the selected file or folder in the host's default app from either panel. Selecting text with the mouse copies it using OSC 52 when you release the button, including the pairing password in the SSH dialog. Your terminal must allow clipboard writes.
 
 New file/folder, Rename and Go to folder use small centered input dialogs. In the trash confirmation, use Left/Right or Tab to choose, Enter to activate, or Esc to cancel. Both choices are clickable; trash failures leave the dialog open for retry.
 
@@ -92,10 +92,10 @@ Headless mode prints the pairing password to standard output. Keep that output p
 | Key | Action |
 | --- | --- |
 | Arrows, j / k | Navigate files |
-| Enter, right, l | Open folder, edit text, preview image, play music or open other files in the host's default app |
+| Enter | Open any selected file or folder in the host's default app |
+| Right, l | Step into a folder or open a file |
 | Left, h, Backspace | Parent folder |
 | Tab | Switch files and preview focus |
-| Enter in preview | Copy displayed preview text to the terminal clipboard |
 | / | Open the inline filename filter above the file list |
 | Enter while filtering | Keep the filter and return to results |
 | Esc | Close dialog or clear filter |

@@ -78,7 +78,7 @@ export async function openExternal(path: string) {
   if (code) throw new Error(`Host opener exited with status ${code}. Check the default app and host desktop session.`);
 }
 
-export const BINARY_PREVIEW = "Binary file.\nEnter in files or o opens the host's default app.";
+export const BINARY_PREVIEW = "Binary file.\nEnter or o opens the host's default app.";
 export async function textPreview(path: string) {
   const bytes = new Uint8Array(await Bun.file(path).slice(0, 64 * 1024).arrayBuffer());
   if (bytes.includes(0)) return BINARY_PREVIEW;
