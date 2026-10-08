@@ -3,10 +3,22 @@
   "module": "index.ts",
   "type": "module",
   "private": true,
+  "scripts": {
+    "start": "cargo run --manifest-path server/Cargo.toml --",
+    "dev": "bun index.ts",
+    "test": "bun test",
+    "check": "bunx tsc --noEmit",
+    "server:test": "cargo test --manifest-path server/Cargo.toml",
+    "ssh:test": "cargo build --manifest-path server/Cargo.toml && POCKET_SSH_TEST=1 bun test ssh.test.ts"
+  },
   "devDependencies": {
     "@types/bun": "latest"
   },
   "peerDependencies": {
     "typescript": "^7"
+  },
+  "dependencies": {
+    "@opentui/core": "^0.5.17",
+    "@opentui/qrcode": "^0.5.17"
   }
 }
