@@ -357,7 +357,12 @@ test("x queues a cut, p moves safely and clears it, and y still copies repeatedl
 test("trash uses a centered Cancel-first confirmation with keyboard, mouse and failure recovery", async () => {
   const directory = await fixture(), source = join(directory, "hello.txt");
   const setup = await createTestRenderer({ width: 110, height: 30 });
-  const oldPath = process.env.PATH;
+  const gio = join(directory, "bin", "gio"), spawn = Bun.spawn;
+  const which = spyOn(Bun, "which").mockReturnValue(gio);
+  const launch = spyOn(Bun, "spawn").mockImplementation((command: unknown) => {
+    if (!Array.isArray(command) || command[0] !== "gio") throw new Error("Unexpected subprocess in trash test.");
+    return spawn([gio, ...command.slice(1)], { stdout: "ignore", stderr: "pipe" });
+  });
   async function waitFor(check: () => boolean | Promise<boolean>) {
     for (let attempt = 0; attempt < 100; attempt++) {
       await Bun.sleep(10); await setup.renderOnce(); if (await check()) return;
@@ -367,14 +372,13 @@ test("trash uses a centered Cancel-first confirmation with keyboard, mouse and f
   try {
     const bin = join(directory, "bin"), trash = join(directory, "trash"), calls = join(directory, "calls"), fail = join(directory, "fail");
     await mkdir(bin); await mkdir(trash); await Bun.write(fail, "fail");
-    const gio = join(bin, "gio");
     await Bun.write(gio, `#!/bin/sh
 root=$(dirname -- "$(dirname -- "$0")")
 printf '%s\\n' "$@" >> "$root/calls"
 if [ -e "$root/fail" ]; then printf 'Trash failed\\n' >&2; exit 1; fi
 mv -- "$3" "$root/trash/"
 `);
-    await chmod(gio, 0o700); process.env.PATH = `${bin}:${oldPath ?? ""}`;
+    await chmod(gio, 0o700);
     const app = buildApp(setup.renderer, directory, ":memory:"); await app.ready;
     app.list.setSelectedIndex(app.list.options.findIndex(option => option.value.path === source));
     setup.mockInput.pressKey("d"); await setup.renderOnce();
@@ -385,7 +389,7 @@ mv -- "$3" "$root/trash/"
     expect(choices.getSelectedIndex()).toBe(0);
     expect(setup.renderer.root.findDescendantById("dialog-input")).toBeUndefined();
     expect(setup.captureCharFrame()).toContain('Move "hello.txt"');
-    expect(setup.captureCharFrame()).toContain("Restore with your desktop file manager");
+    await setup.waitForFrame(frame => frame.includes("Restore with your desktop file manager"));
     await setup.mockMouse.click(app.list.x + 1, app.list.y + 1);
     setup.mockInput.pressEnter();
     expect(setup.renderer.root.findDescendantById("dialog")).toBeUndefined();
@@ -424,7 +428,7 @@ mv -- "$3" "$root/trash/"
     expect(await Bun.file(mouseFile).exists()).toBe(false);
     expect(await Bun.file(join(trash, "mouse.txt")).text()).toBe("mouse confirmation");
   } finally {
-    if (oldPath === undefined) delete process.env.PATH; else process.env.PATH = oldPath;
+    launch.mockRestore(); which.mockRestore();
     setup.renderer.destroy(); await rm(directory, { recursive: true, force: true });
   }
 });

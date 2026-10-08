@@ -7,7 +7,7 @@ A cat-sized OpenTUI file manager. Peach labels, mint selection, compact panels, 
 - Preview PNG, JPEG, WebP and GIF using OpenTUI's native image decoder. tmux uses terminal blocks, so images also work over SSH.
 - Read music tags and a real waveform. Space starts or stops playback with ffplay.
 - Edit with `$EDITOR`, with `vi` as the fallback. The file manager restores itself when the editor exits.
-- Create files and folders, rename, copy and paste. Existing files are protected. Moving to system trash requires typing `trash` to confirm.
+- Create files and folders, rename, copy, cut and paste. Existing files are protected. Moving to system trash uses a compact confirmation with Cancel selected by default.
 - Split panes and open shell tabs with tmux. The Rust SSH server attaches clients to that same session, including the running editor.
 - Press `s` for an SSH QR code, pairing password and host fingerprint.
 
@@ -38,6 +38,8 @@ bun src/index.ts ~/Documents
 ```
 
 The sidebar disappears on smaller terminals. Below 72 columns, Tab switches between the file list and preview. Search uses a one-line field above the file list, so matching files remain visible while you type. With the preview focused, Enter copies its displayed text using OSC 52. Selecting text with the mouse also copies it when you release the button, including the pairing password in the SSH dialog. Your terminal must allow clipboard writes.
+
+New file/folder, Rename and Go to folder use small centered input dialogs. In the trash confirmation, use Left/Right or Tab to choose, Enter to activate, or Esc to cancel. Both choices are clickable; trash failures leave the dialog open for retry.
 
 Bookmarks persist in `$XDG_DATA_HOME/pocket/bookmarks.sqlite`, or `~/.local/share/pocket/bookmarks.sqlite` when that variable is unset. Pressing `B` again removes the bookmark without deleting the folder. The bookmark picker also works on narrow terminals where the sidebar is hidden.
 

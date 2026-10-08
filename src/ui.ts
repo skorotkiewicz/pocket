@@ -233,7 +233,7 @@ export function buildApp(renderer: CliRenderer, initialPath: string, bookmarksFi
     closeModal(); list.blur(); preview.blur(); modalCompact = compact; modalHeight = compact ? 6 : 34;
     modal = new BoxRenderable(renderer, { id: "dialog", position: "absolute", top: 0, left: 0, width: Math.max(20, Math.min(76, renderer.width - 2)), height: Math.min(34, renderer.height), zIndex: 50, border: true, borderStyle: "rounded", borderColor: C.peach, title: ` ${title} `, titleColor: C.peach, backgroundColor: C.panel, flexDirection: "column" });
     app.add(modal);
-    const scroll = new ScrollBoxRenderable(renderer, { id: "dialog-content", flexGrow: 1, minHeight: 0, scrollX: !compact });
+    const scroll = new ScrollBoxRenderable(renderer, { id: "dialog-content", flexGrow: 1, minHeight: 0 });
     modal.add(scroll);
     if (content) scroll.add(new TextRenderable(renderer, { content, fg: C.ink, wrapMode: "word" }));
     scroll.focus();
@@ -244,7 +244,7 @@ export function buildApp(renderer: CliRenderer, initialPath: string, bookmarksFi
   }
   function ask(title: string, description: string, value: string, action: (value: string) => Promise<unknown>) {
     dialog(title, description, true);
-    prompt = new InputRenderable(renderer, { id: "dialog-input", value, placeholder: "Type here, Enter confirms", textColor: C.ink, backgroundColor: C.selected, focusedBackgroundColor: C.selected, cursorColor: C.peach });
+    prompt = new InputRenderable(renderer, { id: "dialog-input", value, placeholder: "Type here, Enter confirms", placeholderColor: C.ink, textColor: C.ink, backgroundColor: C.selected, focusedBackgroundColor: C.selected, cursorColor: C.peach });
     modal!.add(prompt, 1);
     prompt.on(InputRenderableEvents.ENTER, (answer: string) => {
       if (busy) return;
