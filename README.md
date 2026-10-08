@@ -1,5 +1,19 @@
 # Pocket
 
+<!--<p align="center">
+  <img src="./logo.svg" width="360" alt="Pocket: a smug cat in a terminal pocket, stealing a snacks folder." />
+</p>-->
+
+<img align="right" src="./logo.svg" width="220" height="220" alt="Pocket: a smug cat in a terminal pocket, stealing a snacks folder.">
+
+<p align="center">
+  <a href="https://www.kernel.org/"><img src="https://img.shields.io/badge/host-Linux-dce7d4?style=flat-square&amp;logo=linux&amp;logoColor=f5ead7&amp;labelColor=24372b" alt="Host: Linux" /></a>
+  <a href="https://github.com/anomalyco/opentui"><img src="https://img.shields.io/badge/UI-OpenTUI-edb394?style=flat-square&amp;labelColor=24372b" alt="UI: OpenTUI" /></a>
+  <a href="https://bun.sh/"><img src="https://img.shields.io/badge/runtime-Bun-dce7d4?style=flat-square&amp;logo=bun&amp;logoColor=f5ead7&amp;labelColor=24372b" alt="Runtime: Bun" /></a>
+  <a href="https://www.rust-lang.org/"><img src="https://img.shields.io/badge/SSH-Rust-e9ca85?style=flat-square&amp;logo=rust&amp;logoColor=f5ead7&amp;labelColor=24372b" alt="SSH server: Rust" /></a>
+  <a href="https://github.com/tmux/tmux"><img src="https://img.shields.io/badge/session-tmux-dce7d4?style=flat-square&amp;logo=tmux&amp;logoColor=f5ead7&amp;labelColor=24372b" alt="Shared session: tmux" /></a>
+</p>
+
 A cat-sized OpenTUI file manager. Peach labels, mint selection, compact panels, clickable places and a keyboard guide built into `?`.
 
 - Browse folders, filter names, show hidden files and scroll text previews.

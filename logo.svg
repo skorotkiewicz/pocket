@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 420" role="img" aria-labelledby="title description">
+  <title id="title">Pocket</title>
+  <desc id="description">A smug peach cat peeks out of a stitched mint pocket, sneaking away with a folder labeled snacks. Its tongue is sticking out. The pocket has a terminal prompt embroidered on it.</desc>
+  <rect x="4" y="4" width="472" height="412" rx="40" fill="#f7f3e9" stroke="#d7dbca" stroke-width="2"/>
+  <ellipse cx="242" cy="311" rx="111" ry="12" fill="#e2e6d8"/>
+
+  <g stroke="#24372b" stroke-linecap="round" stroke-linejoin="round">
+    <!-- A tail that absolutely does not fit in the pocket. -->
+    <path d="M318 260c51 21 91-13 73-42-13-21-45-11-38 8 3 8 13 9 19 5" fill="none" stroke-width="18"/>
+    <path d="M318 260c51 21 91-13 73-42-13-21-45-11-38 8 3 8 13 9 19 5" fill="none" stroke="#edb394" stroke-width="9"/>
+
+    <!-- Ears first. Plausible innocence second. -->
+    <path d="M168 143l-8-66q-2-12 9-6l42 30q28-10 56 0l42-30q11-6 9 6l-8 66c17 15 22 32 17 51-7 29-43 48-88 48s-81-19-88-48c-5-19 0-36 17-51Z" fill="#edb394" stroke-width="6"/>
+    <path d="m175 91 5 37 17-18Zm129 0-5 37-17-18Z" fill="#d68468" stroke="none"/>
+    <path d="m231 104 8 15 8-15" fill="none" stroke="#b36a4d" stroke-width="3"/>
+    <path d="M184 141c5-7 12-10 20-9m68 0c8-1 15 2 20 9" fill="none" stroke-width="3"/>
+    <ellipse cx="205" cy="154" rx="6" ry="9" fill="#24372b" stroke="none"/>
+    <circle cx="207" cy="151" r="2" fill="#f7f3e9" stroke="none"/>
+    <path d="m269 154 9-5 9 5" fill="none" stroke-width="4"/>
+    <ellipse cx="183" cy="176" rx="12" ry="6" fill="#d68468" stroke="none"/>
+    <ellipse cx="293" cy="176" rx="12" ry="6" fill="#d68468" stroke="none"/>
+    <path d="m231 168 8 6 8-6Z" fill="#24372b" stroke-width="2"/>
+    <path d="M245 183v10c0 10 12 10 12 0v-10" fill="#d68468" stroke-width="3"/>
+    <path d="M239 174v7q-9 11-18 0m18 0q9 11 18 0" fill="none" stroke-width="3"/>
+    <path d="m169 165-28-6m28 17-30 3m169-14 28-6m-28 17 30 3" fill="none" stroke-width="3"/>
+
+    <!-- Important documents. Definitely not fish. -->
+    <g transform="rotate(-12 143 189)">
+      <path d="M94 166v-17q0-6 6-6h28l12 13h44q6 0 6 6v53q0 6-6 6h-84q-6 0-6-6Z" fill="#d9b76c" stroke-width="4"/>
+      <rect x="106" y="159" width="69" height="43" rx="3" fill="#f7f3e9" stroke-width="3"/>
+      <path d="M119 170h40m-40 9h25" fill="none" stroke="#a5b096" stroke-width="3"/>
+      <path d="M90 177q0-6 6-6h92q6 0 6 6l-4 42q-1 5-6 5h-84q-5 0-6-5Z" fill="#e9ca85" stroke-width="4"/>
+      <text x="142" y="201" text-anchor="middle" fill="#24372b" stroke="none" font-family="ui-monospace, monospace" font-size="13" font-weight="700">snacks/</text>
+    </g>
+
+    <!-- The terminal pocket, complete with very serious stitching. -->
+    <path d="M144 207h194l-7 55q-2 17-91 54-89-37-91-54Z" fill="#dce7d4" stroke-width="6"/>
+    <path d="M162 224h158l-5 34q-7 13-75 42-68-29-75-42Z" fill="none" stroke="#758d67" stroke-width="2" stroke-dasharray="5 5"/>
+    <path d="M145 214h192" fill="none" stroke="#b4c6a6" stroke-width="3"/>
+    <text x="240" y="269" text-anchor="middle" fill="#24372b" stroke="none" font-family="ui-monospace, monospace" font-size="38" font-weight="700">&gt;_</text>
+
+    <!-- Tiny paws. Terrible alibi. -->
+    <g transform="rotate(-12 182 209)">
+      <ellipse cx="182" cy="209" rx="22" ry="14" fill="#edb394" stroke-width="4"/>
+      <path d="M177 214v6m10-6v6" fill="none" stroke-width="2"/>
+    </g>
+    <g transform="rotate(12 297 209)">
+      <ellipse cx="297" cy="209" rx="22" ry="14" fill="#edb394" stroke-width="4"/>
+      <path d="M292 214v6m10-6v6" fill="none" stroke-width="2"/>
+    </g>
+    <path d="M362 101v18m-9-9h18M113 104v12m-6-6h12" fill="none" stroke="#b58a4b" stroke-width="3"/>
+  </g>
+
+  <text x="240" y="368" text-anchor="middle" fill="#24372b" font-family="ui-rounded, system-ui, sans-serif" font-size="48" font-weight="800" letter-spacing="-2">pocket<tspan fill="#985436">.</tspan></text>
+  <text x="240" y="395" text-anchor="middle" fill="#586453" font-family="ui-monospace, monospace" font-size="13">your files. my snacks.</text>
+</svg>
