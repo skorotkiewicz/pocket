@@ -22,7 +22,7 @@ test.skipIf(process.env.POCKET_SSH_TEST !== "1")("two SSH clients share files, e
     const editor = join(directory, "editor");
     await Bun.write(editor, '#!/bin/sh\nprintf "edited through SSH\\n" >> "$1"\n'); await chmod(editor, 0o700);
     let executable = resolve("server/target/debug/cute-tui-server");
-    const env = { ...process.env, EDITOR: editor, XDG_DATA_HOME: directory };
+    const env = { ...process.env, EDITOR: editor, XDG_DATA_HOME: join(directory, "data") };
     const runtime = join(directory, "runtime");
     if (process.env.POCKET_BINARY) {
       executable = join(directory, "pocket");

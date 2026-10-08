@@ -1,7 +1,9 @@
-import { chmod, mkdir } from "node:fs/promises";
+import { chmod, mkdir, rename } from "node:fs/promises";
 import { join, resolve } from "node:path";
 
-if (process.platform !== "linux") throw new Error("Pocket executable builds currently support Linux.");
+if (process.platform !== "linux" || !process.report.getReport().header.glibcVersionRuntime) {
+  throw new Error("Pocket executable builds currently require a Linux glibc host.");
+}
 
 const project = resolve(import.meta.dir, "..");
 const tui = join(project, "server/target/pocket-tui");
@@ -22,13 +24,15 @@ const result = await Bun.build({
 if (!result.success) throw new AggregateError(result.logs, "TUI compilation failed.");
 
 console.log("Embedding the TUI in the Rust SSH server…");
-const cargo = Bun.spawn(["cargo", "build", "--release", "--locked", "--manifest-path", "server/Cargo.toml", "--features", "embedded-tui"], {
+const cargo = Bun.spawn(["cargo", "build", "--release", "--locked", "--manifest-path", "server/Cargo.toml", "--target-dir", "server/target", "--features", "embedded-tui"], {
   cwd: project,
   env: { ...process.env, POCKET_TUI_BINARY: tui },
   stdin: "inherit", stdout: "inherit", stderr: "inherit",
 });
 if (await cargo.exited) throw new Error("Rust executable build failed.");
 const executable = join(project, "pocket");
-await Bun.write(executable, Bun.file(join(project, "server/target/release/cute-tui-server")));
-await chmod(executable, 0o755);
+const staged = join(project, "server/target/pocket-next");
+await Bun.write(staged, Bun.file(join(project, "server/target/release/cute-tui-server")));
+await chmod(staged, 0o755);
+await rename(staged, executable);
 console.log(`Built ${executable}. Run ./pocket [folder].`);
