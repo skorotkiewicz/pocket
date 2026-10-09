@@ -17,6 +17,7 @@
 A cat-sized OpenTUI file manager. Peach labels, mint selection, compact panels, clickable places and a keyboard guide built into `?`.
 
 - Browse folders, filter names, show hidden files and scroll text previews.
+- Syntax-highlight JavaScript/JSX, TypeScript/TSX, Rust, Python, JSON, Markdown and Zig in “peek inside”. Colors use Pocket's palette; unknown formats stay plain text.
 - Press `B` to add or remove the current folder's bookmark. Press `b` to jump to one, or click it in the places sidebar.
 - Preview PNG, JPEG, WebP and GIF using OpenTUI's native image decoder. tmux uses terminal blocks, so images also work over SSH.
 - Read music tags and a real waveform. Space starts or stops playback with ffplay.
@@ -94,7 +95,7 @@ bun run build
 ./pocket ~/Documents
 ```
 
-The output is exactly `./pocket`, containing the Rust SSH server, compiled TUI, Bun runtime and OpenTUI native assets. Copy that one file to a compatible Linux machine; no Bun, Rust, source checkout or `node_modules` is needed there. Builds use the host architecture and are not universal or fully static.
+The output is exactly `./pocket`, containing the Rust SSH server, compiled TUI, Bun runtime, OpenTUI native assets and syntax-highlighting grammars. Highlighting works offline, including over SSH. Copy that one file to a compatible Linux machine; no Bun, Rust, source checkout or `node_modules` is needed there. Builds use the host architecture and are not universal or fully static.
 
 Runtime tools remain external: tmux 3.3+, GNU coreutils and a shell. FFmpeg, `gio` and `xdg-open` remain optional as described above. Pocket extracts the embedded TUI into a private directory with owner-only permissions and removes it on normal server shutdown. The temporary filesystem must allow execution; set `TMPDIR` to a writable, executable filesystem if yours is mounted `noexec`.
 
@@ -184,4 +185,4 @@ bun run binary:test
 
 The SSH smoke test starts a real Rust server and two real SSH clients. It checks key and password authentication, shared file creation, `$EDITOR`, preview and selection clipboard forwarding, the share dialog, resizing, disconnect survival, rejected unauthenticated access and rejected SSH exec.
 
-Text previews read at most 64 KB and show up to 500 lines. Image files larger than 32 MB are not decoded. Waveforms sample the first 30 seconds. Directory changes made outside Pocket appear after F5.
+Text and code previews read at most 64 KB and show up to 500 lines. Image files larger than 32 MB are not decoded. Waveforms sample the first 30 seconds. Directory changes made outside Pocket appear after F5.

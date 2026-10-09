@@ -1,7 +1,7 @@
 import {
   BoxRenderable, TextRenderable, SelectRenderable, SelectRenderableEvents,
   InputRenderable, InputRenderableEvents, ScrollBoxRenderable, ImageRenderable,
-  TabSelectRenderable, TabSelectRenderableEvents,
+  TabSelectRenderable, TabSelectRenderableEvents, CodeRenderable, LineNumberRenderable, SyntaxStyle,
   type CliRenderer, type KeyEvent, bold, fg, t,
 } from "@opentui/core";
 import { QRCodeRenderable } from "@opentui/qrcode";
@@ -11,6 +11,7 @@ import { stat } from "node:fs/promises";
 import { mkdirSync } from "node:fs";
 import { Database } from "bun:sqlite";
 import { entries, clean, kind, isMedia, size, textPreview, BINARY_PREVIEW, openExternal, musicPreview, create, renameEntry, copyInto, moveInto, type Entry } from "./files";
+import { previewFiletype } from "./syntax";
 
 const C = { bg: "#202923", panel: "#25312a", ink: "#f5ead7", muted: "#acb9a7", mint: "#a8d5b5", peach: "#efb896", line: "#526854", selected: "#455d49", error: "#f2a799" };
 const label = (text: string) => clean(text).replace(/[\r\n\t]/g, "�");
@@ -83,6 +84,19 @@ export function buildApp(renderer: CliRenderer, initialPath: string, bookmarksFi
   previewPanel.add(preview);
   const previewText = new TextRenderable(renderer, { fg: C.ink, wrapMode: "none", content: "Choose a file to take a peek." });
   preview.add(previewText);
+  const syntaxStyle = SyntaxStyle.fromStyles({
+    default: { fg: C.ink }, keyword: { fg: C.peach, bold: true },
+    string: { fg: C.mint }, comment: { fg: C.muted, italic: true },
+    number: { fg: C.peach }, constant: { fg: C.peach }, boolean: { fg: C.peach },
+    function: { fg: C.peach }, type: { fg: C.mint }, property: { fg: C.mint },
+    punctuation: { fg: C.muted }, operator: { fg: C.ink },
+    "markup.heading": { fg: C.peach, bold: true }, "markup.raw": { fg: C.mint },
+    "markup.strong": { bold: true }, "markup.italic": { italic: true }, "markup.link": { fg: C.mint, underline: true },
+  });
+  for (const level of [1, 2, 3, 4, 5, 6]) syntaxStyle.registerStyle(`markup.heading.${level}`, { fg: C.peach, bold: true });
+  const previewCode = new CodeRenderable(renderer, { id: "preview-code", syntaxStyle, fg: C.ink, wrapMode: "none", conceal: false });
+  const codeLines = new LineNumberRenderable(renderer, { id: "preview-code-lines", target: previewCode, minWidth: 4, paddingRight: 2, fg: C.muted, visible: false });
+  preview.add(codeLines);
   const image = new ImageRenderable(renderer, { id: "preview-image", flexGrow: 1, minHeight: 0, fit: "fit", protocol: "auto", visible: false, onError: (error) => { if (!disposed) { image.visible = false; preview.visible = true; previewText.content = `Image preview failed: ${clean(String(error))}`; } } });
   previewPanel.add(image);
   const status = new TextRenderable(renderer, { height: 1, flexShrink: 0, fg: C.muted, content: "Welcome home. Enter opens, e edits, ? helps." });
@@ -146,6 +160,7 @@ export function buildApp(renderer: CliRenderer, initialPath: string, bookmarksFi
   async function refreshPreview() {
     const version = ++previewVersion, entry = selected();
     image.source = undefined; image.visible = false; preview.visible = true; preview.scrollTo(0);
+    previewCode.filetype = undefined; previewCode.content = ""; codeLines.visible = false; previewText.visible = true;
     previewText.content = entry ? "Taking a peek…" : "No matching files. Esc clears your filter.";
     metadata.content = "";
     if (!entry) return;
@@ -163,8 +178,14 @@ export function buildApp(renderer: CliRenderer, initialPath: string, bookmarksFi
       } else if (kind(entry.path) === "external") {
         previewText.content = "Open with the host's default app.\n\nEnter or o to open.\n\nThe app appears on the host, not the SSH client.";
       } else {
-        const content = await (kind(entry.path) === "music" ? musicPreview(entry.path) : textPreview(entry.path));
-        if (!disposed && version === previewVersion) previewText.content = content;
+        const filetype = kind(entry.path) === "music" ? undefined : previewFiletype(entry.path);
+        const content = await (kind(entry.path) === "music" ? musicPreview(entry.path) : textPreview(entry.path, !filetype));
+        if (!disposed && version === previewVersion) {
+          if (filetype && content !== BINARY_PREVIEW) {
+            previewCode.filetype = filetype; previewCode.content = content;
+            previewText.visible = false; codeLines.visible = true;
+          } else previewText.content = content;
+        }
       }
     } catch (error) { if (!disposed && version === previewVersion) previewText.content = `Cannot preview: ${clean(String(error))}`; }
   }
@@ -453,7 +474,7 @@ export function buildApp(renderer: CliRenderer, initialPath: string, bookmarksFi
   renderer.on("selection", copySelection);
   renderer.once("destroy", () => {
     disposed = true; ++loadVersion; ++previewVersion;
-    player?.kill(); bookmarksDB?.close();
+    player?.kill(); bookmarksDB?.close(); syntaxStyle.destroy();
     renderer.off("resize", layout); renderer.keyInput.off("keypress", onKey);
     renderer.off("selection", copySelection);
   });

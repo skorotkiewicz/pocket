@@ -3,7 +3,7 @@ import { mkdtemp, rm, mkdir, symlink, lstat, rename, chmod } from "node:fs/promi
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { ImageRenderable, InputRenderable, SelectRenderable, TabSelectRenderable } from "@opentui/core";
+import { CodeRenderable, LineNumberRenderable, ImageRenderable, InputRenderable, SelectRenderable, TabSelectRenderable } from "@opentui/core";
 import { createTestRenderer } from "@opentui/core/testing";
 import { buildApp } from "../src/ui";
 import { childPath, create, copyInto, moveInto, renameEntry, entries, textPreview, BINARY_PREVIEW, waveform, musicPreview, mediaPlaylist } from "../src/files";
@@ -115,6 +115,68 @@ test("OpenTUI renders, navigates, filters, opens help and creates files", async 
     setup.renderer.destroy();
     await rm(directory, { recursive: true, force: true });
   }
+});
+
+test("peek inside highlights known code, preserves selection and falls back to plain text", async () => {
+  const directory = await fixture();
+  const setup = await createTestRenderer({ width: 120, height: 28 });
+  const copy = spyOn(setup.renderer, "copyToClipboardOSC52").mockReturnValue(true);
+  const cases = [
+    ["app.TS", 'const message = "猫 snacks";\n// comment\n', "typescript", "const"],
+    ["app.js", 'const snack = "fish";\n', "javascript", "const"],
+    ["app.tsx", "export const Snack = () => <b>cat</b>;\n", "typescriptreact", "export"],
+    ["app.jsx", "export const Snack = () => <b>cat</b>;\n", "javascriptreact", "export"],
+    ["main.rs", 'fn main() { println!("snacks"); }\n', "rust", "fn"],
+    ["main.py", 'def snacks():\n\treturn "fish"\n', "python", "def"],
+    ["data.json", '{"snacks": true}\n', "json", "true"],
+    ["readme.md", "# snacks\n\n**bold** and `code`.\n", "markdown", "snacks"],
+    ["main.zig", 'const snack = "fish";\n', "zig", "const"],
+  ] as const;
+  try {
+    for (const [name, source] of cases) await Bun.write(join(directory, name), source);
+    await Bun.write(join(directory, "binary.ts"), new Uint8Array([0, 1]));
+    await Bun.write(join(directory, "invalid.py"), new Uint8Array([0xff, 0xfe]));
+    await Bun.write(join(directory, "unknown.xyz"), "const plain = 42;\n");
+    const app = buildApp(setup.renderer, directory, ":memory:"); await app.ready;
+    const code = setup.renderer.root.findDescendantById("preview-code") as CodeRenderable;
+    const lines = setup.renderer.root.findDescendantById("preview-code-lines") as LineNumberRenderable;
+    async function choose(name: string, text: string, filetype?: string) {
+      app.list.setSelectedIndex(app.list.options.findIndex(option => option.value.name === name));
+      await setup.waitForFrame(frame => frame.includes(text) && code.filetype === filetype);
+      await code.highlightingDone;
+      await setup.renderOnce();
+    }
+    for (const [name, source, filetype, token] of cases) {
+      await choose(name, source.split("\n")[0]!, filetype);
+      expect(lines.visible).toBe(true);
+      expect(code.filetype).toBe(filetype);
+      expect(code.content).toBe(source.replace(/\t/g, "  "));
+      expect(code.getLineHighlights(0).length).toBeGreaterThan(0);
+      expect(setup.captureSpans().lines.flatMap(line => line.spans).some(span => span.text.includes(token) && span.fg.toInts().slice(0, 3).join(",") === "239,184,150")).toBe(true);
+    }
+    await choose("main.rs", 'println!("snacks")', "rust");
+    const frameLines = setup.captureCharFrame().split("\n");
+    const y = frameLines.findIndex(line => line.includes('println!("snacks")')), x = frameLines[y]!.indexOf("snacks");
+    await setup.mockMouse.pressDown(x, y);
+    await setup.mockMouse.moveTo(x + 5, y);
+    await setup.mockMouse.release(x + 5, y);
+    expect(copy).toHaveBeenLastCalledWith("snacks");
+    setup.resize(54, 18); await setup.renderOnce();
+    expect(setup.captureCharFrame()).toContain('println!("snacks")');
+    setup.resize(120, 28);
+    for (const [name, text] of [["hello.txt", "Hello, pocket!"], ["unknown.xyz", "const plain = 42;"], ["binary.ts", "Binary file."], ["invalid.py", "Binary file."]]) {
+      await choose(name!, text!);
+      expect(lines.visible).toBe(false);
+      expect(code.filetype).toBeUndefined();
+    }
+    const fail = spyOn(code.treeSitterClient, "highlightOnce").mockResolvedValue({ error: "Parser unavailable" });
+    try {
+      await choose("app.js", 'const snack = "fish";', "javascript");
+      expect(lines.visible).toBe(true);
+      expect(setup.captureCharFrame()).toContain('const snack = "fish";');
+    } finally { fail.mockRestore(); }
+    expect(await textPreview(join(directory, "app.TS"), false)).toBe(cases[0][1]);
+  } finally { copy.mockRestore(); setup.renderer.destroy(); await rm(directory, { recursive: true, force: true }); }
 });
 
 test("image previews decode to terminal blocks and music previews read real tags and waveform", async () => {

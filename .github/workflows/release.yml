@@ -54,7 +54,7 @@ jobs:
           TARGET: ${{ matrix.target }}
         run: |
           ARCHIVE="pocket-${TAG}-${TARGET}.tar.gz"
-          tar -czf "$ARCHIVE" pocket README.md .github/assets/logo.svg LICENSE
+          tar -czf "$ARCHIVE" pocket README.md .github/assets/logo.svg LICENSE src/parsers/LICENSE
           sha256sum "$ARCHIVE" > "$ARCHIVE.sha256"
       - uses: actions/upload-artifact@v4
         with:

@@ -105,7 +105,7 @@ export async function openExternal(path: string) {
 }
 
 export const BINARY_PREVIEW = "Binary file.\nEnter or o opens the host's default app.";
-export async function textPreview(path: string) {
+export async function textPreview(path: string, lineNumbers = true) {
   const bytes = new Uint8Array(await Bun.file(path).slice(0, 64 * 1024).arrayBuffer());
   if (bytes.includes(0)) return BINARY_PREVIEW;
   // ponytail: sniff only the first 64 KB as UTF-8; use MIME/charset detection if other encodings matter.
@@ -113,7 +113,7 @@ export async function textPreview(path: string) {
   try { decoded = new TextDecoder("utf-8", { fatal: true }).decode(bytes, { stream: bytes.length === 64 * 1024 }); }
   catch { return BINARY_PREVIEW; }
   const text = clean(decoded);
-  return text.split("\n").slice(0, 500).map((line, i) => `${String(i + 1).padStart(4)}  ${line.replace(/\t/g, "  ")}`).join("\n") + (bytes.length === 64 * 1024 ? "\n… Preview limited to 64 KB" : "");
+  return text.split("\n").slice(0, 500).map((line, i) => `${lineNumbers ? `${String(i + 1).padStart(4)}  ` : ""}${line.replace(/\t/g, "  ")}`).join("\n") + (bytes.length === 64 * 1024 ? "\n… Preview limited to 64 KB" : "");
 }
 
 export function waveform(bytes: Uint8Array, width = 44) {

@@ -16,6 +16,7 @@ test.skipIf(process.env.POCKET_SSH_TEST !== "1")("two SSH clients share files, e
   try {
     const folder = join(directory, "files"); await mkdir(folder);
     await Bun.write(join(folder, "hello.txt"), "original\n");
+    await Bun.write(join(folder, "snacks.rs"), 'fn main() { println!("cat snacks"); }\n');
     const bookmarkedFolder = join(folder, "bookmarked"); await mkdir(bookmarkedFolder);
     const keygen = Bun.spawn(["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-f", join(directory, "client")]);
     expect(await keygen.exited).toBe(0);
@@ -69,6 +70,16 @@ test.skipIf(process.env.POCKET_SSH_TEST !== "1")("two SSH clients share files, e
       first.client.terminal!.write("\x1b");
       await waitFor(async () => (await screen()).includes("hello.txt"), "Could not restore the packaged file list");
     }
+    first.client.terminal!.write("/");
+    await waitFor(async () => (await screen()).includes("Filter file names"), "Code preview search did not open");
+    first.client.terminal!.write("snacks.rs\r");
+    await waitFor(async () => {
+      const capture = Bun.spawn(["tmux", "-L", `pocket-${server!.pid}`, "capture-pane", "-p", "-e"], { stdout: "pipe", stderr: "ignore" });
+      return /\x1b\[[0-9;]*38;2;239;184;150[0-9;]*mfn/.test(await new Response(capture.stdout).text());
+    }, "Rust syntax highlighting did not reach the SSH terminal");
+    expect((await screen()).includes('println!("cat snacks")')).toBe(true);
+    first.client.terminal!.write("\x1b");
+    await waitFor(async () => (await screen()).includes("hello.txt"), "Could not restore the file list after code preview");
     // Password authentication uses an askpass helper instead of typing secrets into the PTY.
     const askpass = join(directory, "askpass");
     await Bun.write(askpass, '#!/bin/sh\nprintf "%s" "$PAIRING"\n'); await chmod(askpass, 0o700);
