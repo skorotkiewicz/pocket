@@ -19,6 +19,7 @@ A cat-sized OpenTUI file manager. Peach labels, mint selection, compact panels, 
 - Browse folders, filter names, show hidden files and scroll text previews.
 - Syntax-highlight JavaScript/JSX, TypeScript/TSX, Rust, Python, JSON, Markdown, Zig, Bash, YAML, TOML, HTML/CSS, SQL, C/C++, Go and Java in `peek inside`. Colors use Pocket's palette; unknown formats stay plain text.
 - Press `B` to add or remove the current folder's bookmark. Press `b` to jump to one, or click it in the places sidebar.
+- Press `c` to connect to an SSHFS host. Remote bookmarks reconnect using SSH config and keys; copy or move between local and remote folders with the same `y` / `x`, then `p` keys.
 - Preview PNG, JPEG, WebP and GIF using OpenTUI's native image decoder. tmux uses terminal blocks, so images also work over SSH.
 - Read music tags and a real waveform. Space starts or stops playback with ffplay.
 - Open audio/video-only folders as playlists in the host's default player. Select a file inside to start the playlist there.
@@ -85,6 +86,28 @@ xdg-mime default mpv.desktop video/mp4 video/x-matroska
 xdg-mime default mpv.desktop audio/x-mpegurl audio/mpegurl application/x-mpegurl application/vnd.apple.mpegurl
 ```
 
+## Remote folders with SSHFS
+
+Install `sshfs` and FUSE tools on the computer running Pocket. On Arch, `sudo pacman -S sshfs`; on Debian/Ubuntu, `sudo apt install sshfs`. The host must permit FUSE mounts, usually through `/dev/fuse`.
+
+Press `c`, or click **Connect SSHFS** in the sidebar. Enter `user@host:/absolute/path` or an SSH config alias such as `work:/home/cat`. Configure a custom port, identity file or jump host in `~/.ssh/config`:
+
+```sshconfig
+Host work
+  HostName files.example.com
+  User cat
+  Port 2222
+  IdentityFile ~/.ssh/id_ed25519
+```
+
+Set up key or SSH-agent authentication on the Pocket host. Run `ssh work` first and verify the server fingerprint before trusting it. Pocket requires a known host key and does not prompt for or store passwords. The remote server must provide SFTP; Pocket's session-sharing SSH port does not.
+
+Once connected, press `B` to bookmark the remote folder or a subfolder. `b` and the sidebar reconnect those bookmarks after a restart or disconnect. They save the SSH target, not the local mount path. Local bookmarks still work as before.
+
+To transfer a file or folder, select it and press `y`, navigate to the destination using `b` or `g`, then press `p`. This works local → remote, remote → local and between connected hosts. Use `x`, then `p` to move instead. Existing names are protected; failed moves keep the cut queued for retry. Permissions and available space on both hosts still apply.
+
+Press `u` from a connected folder to disconnect its mount and return Home. Bookmarks remain saved. Pocket does not force or lazily unmount busy filesystems. Mounts stay active when Pocket closes so other panes and host apps can keep using them. Mount folders live alongside the bookmark database under `pocket/mounts`, with private parent directories.
+
 ## Build one executable
 
 Build on a Linux glibc host with Bun and Rust installed:
@@ -97,7 +120,7 @@ bun run build
 
 The output is exactly `./pocket`, containing the Rust SSH server, compiled TUI, Bun runtime, OpenTUI native assets and syntax-highlighting grammars. Highlighting works offline, including over SSH. Copy that one file to a compatible Linux machine; no Bun, Rust, source checkout or `node_modules` is needed there. Builds use the host architecture and are not universal or fully static.
 
-Runtime tools remain external: tmux 3.3+, GNU coreutils and a shell. FFmpeg, `gio` and `xdg-open` remain optional as described above. Pocket extracts the embedded TUI into a private directory with owner-only permissions and removes it on normal server shutdown. The temporary filesystem must allow execution; set `TMPDIR` to a writable, executable filesystem if yours is mounted `noexec`.
+Runtime tools remain external: tmux 3.3+, GNU coreutils and a shell. FFmpeg, `gio`, `xdg-open` and SSHFS/FUSE remain optional as described above. Pocket extracts the embedded TUI into a private directory with owner-only permissions and removes it on normal server shutdown. The temporary filesystem must allow execution; set `TMPDIR` to a writable, executable filesystem if yours is mounted `noexec`.
 
 ## Join from another device
 
@@ -149,6 +172,8 @@ Headless mode prints the pairing password to standard output. Keep that output p
 | Esc | Close dialog or clear filter |
 | . | Show hidden files |
 | g | Go to a folder |
+| c | Connect to an SSHFS host using SSH keys/config |
+| u | Disconnect the current SSHFS mount; keep its bookmarks |
 | B | Add / remove the current folder's bookmark |
 | b | Choose a bookmark and press Enter to jump |
 | e | Edit with `$EDITOR` |
@@ -179,9 +204,13 @@ bun run server:test
 cargo clippy --manifest-path server/Cargo.toml -- -D warnings
 bun run ssh:test
 bun run binary:test
+# Optional, requires sshfs, sshd and working /dev/fuse:
+bun run sshfs:test
 ```
 
 `bun run binary:test` builds `./pocket`, copies it into a clean directory, then runs the SSH smoke test with Bun and Cargo absent from the server's PATH. It also checks extraction permissions and cleanup.
+
+The SSHFS check starts a local OpenSSH/SFTP server and a real FUSE mount. It checks reconnectable bookmarks, copies in both directions, cross-filesystem moves, collision retries and disconnects. Normal tests skip this mount check unless explicitly requested.
 
 The SSH smoke test starts a real Rust server and two real SSH clients. It checks key and password authentication, shared file creation, `$EDITOR`, preview and selection clipboard forwarding, the share dialog, resizing, disconnect survival, rejected unauthenticated access and rejected SSH exec.
 

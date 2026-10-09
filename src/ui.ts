@@ -12,12 +12,14 @@ import { mkdirSync } from "node:fs";
 import { Database } from "bun:sqlite";
 import { entries, clean, kind, isMedia, size, textPreview, BINARY_PREVIEW, openExternal, musicPreview, create, renameEntry, copyInto, moveInto, type Entry } from "./files";
 import { previewFiletype } from "./syntax";
+import { bookmarkPath, isRemoteBookmark, mountRemote, unmountRemote } from "./sshfs";
 
 const C = { bg: "#202923", panel: "#25312a", ink: "#f5ead7", muted: "#acb9a7", mint: "#a8d5b5", peach: "#efb896", line: "#526854", selected: "#455d49", error: "#f2a799" };
 const label = (text: string) => clean(text).replace(/[\r\n\t]/g, "�");
 const icon = (entry: Entry) => entry.directory ? "+" : kind(entry.path) === "music" ? "♪" : kind(entry.path) === "image" ? "▧" : "·";
 
 export function buildApp(renderer: CliRenderer, initialPath: string, bookmarksFile = join(process.env.XDG_DATA_HOME || join(homedir(), ".local/share"), "pocket", "bookmarks.sqlite")) {
+  const mountsRoot = join(bookmarksFile === ":memory:" ? join(process.env.XDG_DATA_HOME || join(homedir(), ".local/share"), "pocket") : dirname(bookmarksFile), "mounts");
   let bookmarksDB: Database | undefined;
   let cwd = resolve(initialPath), all: Entry[] = [], hidden = false, query = "", busy = false;
   let previewVersion = 0, loadVersion = 0, disposed = false;
@@ -41,6 +43,7 @@ export function buildApp(renderer: CliRenderer, initialPath: string, bookmarksFi
   for (const [label, path] of [["⌂  Home", homedir()], ["↓  Downloads", join(homedir(), "Downloads")], ["▤  Documents", join(homedir(), "Documents")], ["/  Filesystem", "/"], ["·  Started here", cwd]] as const) {
     places.add(new TextRenderable(renderer, { content: ` ${label}`, height: 1, fg: C.muted, onMouseDown: () => { if (!modal && !busy) run(() => load(path)); } }));
   }
+  places.add(new TextRenderable(renderer, { id: "sshfs-connect", content: " ↗  Connect SSHFS c", height: 1, fg: C.mint, selectable: false, onMouseDown: event => { event.preventDefault(); if (!modal && !busy) connect(); } }));
   const bookmarkPlaces = new ScrollBoxRenderable(renderer, { id: "saved-places", flexGrow: 1, minHeight: 0 });
   places.add(bookmarkPlaces);
   places.add(new TextRenderable(renderer, { content: "  /\\_/\\\n ( o.o )\n  > ^ <\n\n ?  all shortcuts\n s  share session", fg: C.peach, flexShrink: 0 }));
@@ -107,7 +110,7 @@ export function buildApp(renderer: CliRenderer, initialPath: string, bookmarksFi
   for (const [label, action] of [
     [" Enter open ", () => openHost()], [" e edit ", () => edit()],
     [" / find ", () => search()], [" n new ", () => newEntry(false)], [" b marks ", () => showBookmarks()],
-    [" s SSH ", () => share()], [" ? help ", () => help()],
+    [" c connect ", () => connect()], [" s SSH ", () => share()], [" ? help ", () => help()],
   ] as const) toolbar.add(new TextRenderable(renderer, { content: label, fg: C.ink, onMouseDown: () => { if (!modal && !busy) run(action); } }));
 
   function say(message: string, error = false) {
@@ -143,11 +146,13 @@ export function buildApp(renderer: CliRenderer, initialPath: string, bookmarksFi
 
   async function load(path: string, selectPath?: string) {
     const version = ++loadVersion;
+    if (isRemoteBookmark(path)) { say("Connecting SSHFS…"); path = await mountRemote(path, mountsRoot); }
     const items = await entries(path);
     if (disposed || version !== loadVersion) return;
     cwd = resolve(path); all = items; query = "";
     if (searchInput.visible) finishSearch(false);
-    breadcrumb.content = ` ${clean(cwd.replace(homedir(), "~"))}`;
+    const location = bookmarkPath(cwd, mountsRoot);
+    breadcrumb.content = ` ${clean(isRemoteBookmark(location) ? location : cwd.replace(homedir(), "~"))}`;
     filter(selectPath);
     run(refreshBookmarks);
   }
@@ -331,20 +336,21 @@ export function buildApp(renderer: CliRenderer, initialPath: string, bookmarksFi
     for (const child of bookmarkPlaces.getChildren()) child.destroyRecursively();
     bookmarkPlaces.add(new TextRenderable(renderer, { content: " * bookmarks", height: 1, fg: C.peach, selectable: false, onMouseDown: event => { event.preventDefault(); if (!modal && !busy) run(showBookmarks); } }));
     paths.forEach((path, index) => bookmarkPlaces.add(new TextRenderable(renderer, {
-      id: `bookmark-${index}`, content: ` * ${label(basename(path) || path)}`, height: 1, fg: C.mint, truncate: true, selectable: false,
+      id: `bookmark-${index}`, content: ` ${isRemoteBookmark(path) ? "↗ " + label(path.slice(6)) : "* " + label(basename(path) || path)}`, height: 1, fg: C.mint, truncate: true, selectable: false,
       onMouseDown: event => { event.preventDefault(); if (!modal && !busy) run(() => jumpBookmark(path)); },
     })));
-    bookmarkPlaces.add(new TextRenderable(renderer, { id: "bookmark-toggle", content: paths.includes(cwd) ? " - unbookmark B" : " + bookmark B", height: 1, fg: C.muted, selectable: false, onMouseDown: event => { event.preventDefault(); if (!modal && !busy) run(toggleBookmark); } }));
+    bookmarkPlaces.add(new TextRenderable(renderer, { id: "bookmark-toggle", content: paths.includes(bookmarkPath(cwd, mountsRoot)) ? " - unbookmark B" : " + bookmark B", height: 1, fg: C.muted, selectable: false, onMouseDown: event => { event.preventDefault(); if (!modal && !busy) run(toggleBookmark); } }));
   }
   function toggleBookmark() {
     savedBookmarks();
+    const path = bookmarkPath(cwd, mountsRoot);
     const removed = bookmarksDB!.transaction(() => {
-      const removed = bookmarksDB!.query("DELETE FROM bookmarks WHERE path = ?").run(cwd).changes > 0;
-      if (!removed) bookmarksDB!.query("INSERT INTO bookmarks (path) VALUES (?)").run(cwd);
+      const removed = bookmarksDB!.query("DELETE FROM bookmarks WHERE path = ?").run(path).changes > 0;
+      if (!removed) bookmarksDB!.query("INSERT INTO bookmarks (path) VALUES (?)").run(path);
       return removed;
     }).immediate();
     refreshBookmarks();
-    say(removed ? `Removed bookmark: ${cwd}` : `Bookmarked ${cwd}. Press b to jump back.`);
+    say(removed ? `Removed bookmark: ${path}` : `Bookmarked ${path}. Press b to jump back.`);
   }
   async function jumpBookmark(path: string) {
     busy = true;
@@ -365,7 +371,7 @@ export function buildApp(renderer: CliRenderer, initialPath: string, bookmarksFi
     const rows = Math.max(1, Math.min(paths.length, renderer.height - 3));
     const picker = new SelectRenderable(renderer, {
       id: "bookmark-picker", height: rows, showDescription: false, showScrollIndicator: true,
-      options: paths.map(path => ({ name: ` ${label(basename(path) || path)}  ${label(path.replace(homedir(), "~"))}`, description: "", value: path })),
+      options: paths.map(path => ({ name: isRemoteBookmark(path) ? ` SSHFS  ${label(path.slice(6))}` : ` ${label(basename(path) || path)}  ${label(path.replace(homedir(), "~"))}`, description: "", value: path })),
       textColor: C.ink, backgroundColor: C.panel, focusedBackgroundColor: C.panel, focusedTextColor: C.ink,
       selectedBackgroundColor: C.selected, selectedTextColor: C.ink,
       onMouseDown: (event) => {
@@ -379,6 +385,23 @@ export function buildApp(renderer: CliRenderer, initialPath: string, bookmarksFi
     picker.on(SelectRenderableEvents.ITEM_SELECTED, (_index, option) => run(() => jumpBookmark(option.value)));
     scroll.add(picker); picker.focus();
     modalMessage!.content = " Enter open · Esc close";
+  }
+  function connect() {
+    ask("Connect SSHFS", "SSH alias or user@host:/absolute/path. Keys and trusted hosts required.", "", async target => {
+      await load(`sshfs:${target}`);
+      previewFocused = false; list.focus(); layout(); listPanel.borderColor = C.mint; previewPanel.borderColor = C.line;
+      say("SSHFS connected. B saves it; y / x then p copies / moves between folders.");
+    });
+  }
+  async function disconnect() {
+    busy = true;
+    try {
+      const mount = await unmountRemote(cwd, mountsRoot);
+      if (clipboard && (clipboard.path === mount.path || clipboard.path.startsWith(mount.path + "/"))) clipboard = undefined;
+      await load(homedir());
+      previewFocused = false; list.focus(); layout(); listPanel.borderColor = C.mint; previewPanel.borderColor = C.line;
+      say(`Disconnected ${mount.target}. Remote bookmarks are kept.`);
+    } finally { busy = false; }
   }
   function newEntry(folder: boolean) {
     ask(folder ? "New folder" : "New file", "Existing files are never overwritten.", "", async name => {
@@ -406,7 +429,7 @@ export function buildApp(renderer: CliRenderer, initialPath: string, bookmarksFi
     });
   }
   function help() {
-    dialog("A tiny field guide", `FILES\n↑ ↓ or j k  choose a file\nEnter  open in the host's default app\nMedia-only folder / file inside  open a playlist\n→ / l  step into a folder or open a file\n← / h / Backspace  parent folder\nTab  files / preview, arrows scroll preview\nDrag over text  copy selection when released\n/  find in this folder    Esc  clear filter\n.  show hidden files     g  go to a path\nHome  first file         End  last file\nB  toggle folder bookmark    b  jump to bookmark\n\nMAKE & EDIT\ne  edit with $EDITOR, defaults to vi\no  open in the host's default app\nn  new file             N  new folder\nr  rename               y  copy selected file or folder\nx  cut selected file or folder\np  paste copy / move, no overwrite\nd  move to system trash, confirmation required\nSpace  play / stop music on the host\nF5  refresh folder\n\nSHARED SESSION\ns  SSH connection and QR code\nCtrl+B then %  split left / right\nCtrl+B then \"  split top / bottom\nCtrl+B then c  new shell tab\nCtrl+B then arrows  switch panes\nCtrl+B then n / p  next / previous tab\nCtrl+B then d  detach, leave session running\n\n?  this guide    q  close file manager\nSSH users share control and your OS permissions.`);
+    dialog("A tiny field guide", `FILES\n↑ ↓ or j k  choose a file\nEnter  open in the host's default app\nMedia-only folder / file inside  open a playlist\n→ / l  step into a folder or open a file\n← / h / Backspace  parent folder\nTab  files / preview, arrows scroll preview\nDrag over text  copy selection when released\n/  find in this folder    Esc  clear filter\n.  show hidden files     g  go to a path\nHome  first file         End  last file\nB  toggle folder bookmark    b  jump to bookmark\nc  connect SSHFS    u  disconnect this mount\nRemote bookmarks reconnect using SSH keys/config\n\nMAKE & EDIT\ne  edit with $EDITOR, defaults to vi\no  open in the host's default app\nn  new file             N  new folder\nr  rename               y  copy selected file or folder\nx  cut selected file or folder\np  paste copy / move, no overwrite\nd  move to system trash, confirmation required\nSpace  play / stop music on the host\nF5  refresh folder\n\nSHARED SESSION\ns  SSH connection and QR code\nCtrl+B then %  split left / right\nCtrl+B then \"  split top / bottom\nCtrl+B then c  new shell tab\nCtrl+B then arrows  switch panes\nCtrl+B then n / p  next / previous tab\nCtrl+B then d  detach, leave session running\n\n?  this guide    q  close file manager\nSSH users share control and your OS permissions.`);
   }
   function share() {
     const uri = process.env.CUTE_SSH_URI;
@@ -445,7 +468,7 @@ export function buildApp(renderer: CliRenderer, initialPath: string, bookmarksFi
     if (key.name === "escape") { searchInput.visible = false; query = ""; filter(); previewFocused = false; list.focus(); layout(); key.preventDefault(); return; }
     if (key.name === "q") { renderer.destroy(); return; }
     if (key.name === "?" || key.sequence === "?") { help(); key.preventDefault(); return; }
-    const globalAction = key.name === "/" ? search : key.name === "s" ? share : key.name === "e" ? edit : key.name === "o" || key.name === "return" ? openHost : key.name === "space" ? toggleMusic : undefined;
+    const globalAction = key.name === "/" ? search : key.name === "s" ? share : key.name === "c" ? connect : key.name === "u" ? disconnect : key.name === "e" ? edit : key.name === "o" || key.name === "return" ? openHost : key.name === "space" ? toggleMusic : undefined;
     if (globalAction) { key.preventDefault(); run(globalAction); return; }
     if (previewFocused) return;
     const actions: Record<string, () => void | Promise<unknown>> = {

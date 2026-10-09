@@ -12,6 +12,7 @@ optdepends=(
   'glib2: system trash and default-app opening with gio'
   'xdg-utils: fallback default-app opening'
   'openssh: connect to a Pocket session from the terminal'
+  'sshfs: mount remote hosts and copy or move files between local and SSHFS folders'
 )
 provides=("pocket=$pkgver")
 conflicts=('pocket')
