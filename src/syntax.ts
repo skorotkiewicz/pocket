@@ -16,6 +16,8 @@ import htmlQuery from "./parsers/html.scm" with { type: "file" };
 import htmlInjections from "./parsers/html-injections.scm" with { type: "file" };
 import cssWasm from "./parsers/css.wasm" with { type: "file" };
 import cssQuery from "./parsers/css.scm" with { type: "file" };
+import sqlWasm from "./parsers/sql.wasm" with { type: "file" };
+import sqlQuery from "./parsers/sql.scm" with { type: "file" };
 import cWasm from "./parsers/c.wasm" with { type: "file" };
 import cQuery from "./parsers/c.scm" with { type: "file" };
 import cppWasm from "./parsers/cpp.wasm" with { type: "file" };
@@ -36,6 +38,7 @@ addDefaultParsers([
   { filetype: "toml", wasm: tomlWasm, queries: { highlights: [tomlQuery] } },
   { filetype: "html", wasm: htmlWasm, queries: { highlights: [htmlQuery], injections: [htmlInjections] } },
   { filetype: "css", wasm: cssWasm, queries: { highlights: [cssQuery] } },
+  { filetype: "sql", wasm: sqlWasm, queries: { highlights: [sqlQuery] } },
   { filetype: "c", wasm: cWasm, queries: { highlights: [cQuery] } },
   { filetype: "cpp", wasm: cppWasm, queries: { highlights: [cQuery, cppQuery] } },
   { filetype: "go", wasm: goWasm, queries: { highlights: [goQuery] } },
@@ -45,7 +48,7 @@ basenameToFiletype.set("pkgbuild", "bash");
 
 const supported = new Set([
   "javascript", "javascriptreact", "typescript", "typescriptreact", "markdown", "zig", "rust", "python", "json",
-  "bash", "yaml", "toml", "html", "css", "c", "cpp", "go", "java",
+  "bash", "yaml", "toml", "html", "css", "sql", "c", "cpp", "go", "java",
 ]);
 export function previewFiletype(path: string) {
   const filetype = pathToFiletype(path);
