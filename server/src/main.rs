@@ -22,7 +22,11 @@ use subtle::ConstantTimeEq;
 use tokio::{net::TcpListener, sync::mpsc};
 
 #[derive(Parser, Debug)]
-#[command(about = "Pocket: an OpenTUI file manager with a shared SSH session")]
+#[command(
+    name = "pocket",
+    version,
+    about = "Pocket: an OpenTUI file manager with a shared SSH session"
+)]
 struct Options {
     /// Folder to open
     #[arg(default_value = ".")]

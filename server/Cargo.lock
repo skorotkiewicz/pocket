@@ -444,7 +444,7 @@ dependencies = [
 
 [[package]]
 name = "cute-tui-server"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "anyhow",
  "clap",
