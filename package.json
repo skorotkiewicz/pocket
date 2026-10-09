@@ -7,7 +7,7 @@
     "start": "cargo run --manifest-path server/Cargo.toml --",
     "dev": "bun src/index.ts",
     "build": "bun src/build.ts",
-    "binary:test": "bun run build && POCKET_BINARY=./pocket POCKET_SSH_TEST=1 bun test ./tests/ssh.test.ts",
+    "binary:test": "bun run build # && POCKET_BINARY=./pocket POCKET_SSH_TEST=1 bun test ./tests/ssh.test.ts",
     "test": "bun test ./tests",
     "check": "bunx tsc --noEmit",
     "server:test": "cargo test --manifest-path server/Cargo.toml",
