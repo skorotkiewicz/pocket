@@ -1,6 +1,6 @@
 # Parser assets
 
-WASM parsers and highlight queries are paired at the upstream versions listed in `LICENSE`. Most WASM files come from each upstream GitHub release. C++ uses both the C and C++ highlight queries. HTML includes its upstream injection query for embedded JavaScript and CSS.
+WASM parsers and highlight queries are paired at the upstream versions listed in `LICENSE`. Most WASM files come from each upstream GitHub release. C++ uses both the C and C++ highlight queries. HTML and CSS are highlighted separately. The upstream `html-injections.scm` is retained but not registered: OpenTUI 0.5.17's worker does not honor its `injection.language` metadata.
 
 `src/syntax.ts` imports these files through Bun's file loader, so `./pocket` includes them and does not download grammars at runtime. Release archives carry the combined notices; PKGBUILD installs them as `tree-sitter-LICENSE`.
 

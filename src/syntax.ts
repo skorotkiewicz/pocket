@@ -13,7 +13,6 @@ import tomlWasm from "./parsers/toml.wasm" with { type: "file" };
 import tomlQuery from "./parsers/toml.scm" with { type: "file" };
 import htmlWasm from "./parsers/html.wasm" with { type: "file" };
 import htmlQuery from "./parsers/html.scm" with { type: "file" };
-import htmlInjections from "./parsers/html-injections.scm" with { type: "file" };
 import cssWasm from "./parsers/css.wasm" with { type: "file" };
 import cssQuery from "./parsers/css.scm" with { type: "file" };
 import sqlWasm from "./parsers/sql.wasm" with { type: "file" };
@@ -36,7 +35,8 @@ addDefaultParsers([
   { filetype: "bash", wasm: bashWasm, queries: { highlights: [bashQuery] } },
   { filetype: "yaml", wasm: yamlWasm, queries: { highlights: [yamlQuery] } },
   { filetype: "toml", wasm: tomlWasm, queries: { highlights: [tomlQuery] } },
-  { filetype: "html", wasm: htmlWasm, queries: { highlights: [htmlQuery], injections: [htmlInjections] } },
+  // ponytail: HTML/CSS stay separate; enable injections when Core honors injection.language metadata.
+  { filetype: "html", wasm: htmlWasm, queries: { highlights: [htmlQuery] } },
   { filetype: "css", wasm: cssWasm, queries: { highlights: [cssQuery] } },
   { filetype: "sql", wasm: sqlWasm, queries: { highlights: [sqlQuery] } },
   { filetype: "c", wasm: cWasm, queries: { highlights: [cQuery] } },
