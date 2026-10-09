@@ -10,6 +10,7 @@ depends=('glibc' 'gcc-libs' 'tmux' 'coreutils')
 optdepends=(
   'ffmpeg: music tags, waveform previews and host audio playback'
   'glib2: system trash and default-app opening with gio'
+  'gvfs: browse, restore and permanently delete items in the system trash'
   'xdg-utils: fallback default-app opening'
   'openssh: connect to a Pocket session from the terminal'
   'sshfs: mount remote hosts and copy or move files between local and SSHFS folders'

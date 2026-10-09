@@ -464,7 +464,7 @@ mv -- "$3" "$root/trash/"
     expect(choices.getSelectedIndex()).toBe(0);
     expect(setup.renderer.root.findDescendantById("dialog-input")).toBeUndefined();
     expect(setup.captureCharFrame()).toContain('Move "hello.txt"');
-    await setup.waitForFrame(frame => frame.includes("Restore with your desktop file manager"));
+    await setup.waitForFrame(frame => frame.includes("Press t to restore it in Pocket"));
     await setup.mockMouse.click(app.list.x + 1, app.list.y + 1);
     setup.mockInput.pressEnter();
     expect(setup.renderer.root.findDescendantById("dialog")).toBeUndefined();

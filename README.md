@@ -24,7 +24,7 @@ A cat-sized OpenTUI file manager. Peach labels, mint selection, compact panels, 
 - Read music tags and a real waveform. Space starts or stops playback with ffplay.
 - Open audio/video-only folders as playlists in the host's default player. Select a file inside to start the playlist there.
 - Press `e` to edit text with `$EDITOR`, with `vi` as the fallback. Enter opens any selected file or folder in the host's default app. Press `o` to open any selected file externally.
-- Create files and folders, rename, copy, cut and paste. Existing files are protected. Moving to system trash uses a compact confirmation with Cancel selected by default.
+- Create files and folders, rename, copy, cut and paste. Existing files are protected. Moving to system trash uses a compact confirmation with Cancel selected by default. Press `t` to restore trashed items or permanently delete them with confirmation.
 - Split panes and open shell tabs with tmux. The Rust SSH server attaches clients to that same session, including the running editor.
 - Press `s` for an SSH QR code, pairing password and host fingerprint.
 
@@ -70,6 +70,10 @@ bun src/index.ts ~/Documents
 The sidebar disappears on smaller terminals. Below 72 columns, Tab switches between the file list and preview. Search uses a one-line field above the file list, so matching files remain visible while you type. Enter opens the selected file or folder in the host's default app from either panel. Selecting text with the mouse copies it using OSC 52 when you release the button, including the pairing password in the SSH dialog. Your terminal must allow clipboard writes.
 
 New file/folder, Rename and Go to folder use small centered input dialogs. In the trash confirmation, use Left/Right or Tab to choose, Enter to activate, or Esc to cancel. Both choices are clickable; trash failures leave the dialog open for retry.
+
+Press `t`, or click Trash in the sidebar, to browse the system trash. Select an item to see its original path and deletion date. Enter, `r`, or the Restore button restores it to its original location; existing files are never overwritten. `d` or Delete forever opens a Cancel-first confirmation. Permanent deletion cannot be undone and includes a folder's contents. F5 reloads the list; Esc closes it.
+
+Trash browsing and recovery need `gio`, a working user D-Bus session and GVFS's trash backend. Install `gvfs` on Arch or `gvfs-backends` on Debian/Ubuntu. Pocket uses the same trash as the desktop, including supported mounted drives; it does not create a separate trash store. SSHFS trashing depends on the mount and backend. If trashing fails, the error is shown and Pocket does not fall back to permanent deletion.
 
 Bookmarks persist in `$XDG_DATA_HOME/pocket/bookmarks.sqlite`, or `~/.local/share/pocket/bookmarks.sqlite` when that variable is unset. Pressing `B` again removes the bookmark without deleting the folder. The bookmark picker also works on narrow terminals where the sidebar is hidden.
 
@@ -183,6 +187,7 @@ Headless mode prints the pairing password to standard output. Keep that output p
 | y, then p | Copy, then paste into the current folder |
 | x, then p | Cut, then move into the current folder without overwriting |
 | d | Move to system trash, with confirmation |
+| t | Browse system trash; Enter/r restores, d confirms permanent deletion |
 | Space | Play / stop music |
 | F5 | Refresh |
 | s | Share SSH connection |
@@ -206,9 +211,13 @@ bun run ssh:test
 bun run binary:test
 # Optional, requires sshfs, sshd and working /dev/fuse:
 bun run sshfs:test
+# Optional, requires gio, GVFS and dbus-run-session:
+bun run trash:test
 ```
 
 `bun run binary:test` builds `./pocket`, copies it into a clean directory, then runs the SSH smoke test with Bun and Cargo absent from the server's PATH. It also checks extraction permissions and cleanup.
+
+The Trash UI check covers restore collisions, Cancel-first permanent deletion, failures/retries, unusual filenames, mouse controls and narrow layouts. `trash:test` also checks native GIO recovery and recursive deletion in a private D-Bus session and temporary trash data directory, without modifying existing trash items.
 
 The SSHFS check starts a local OpenSSH/SFTP server and a real FUSE mount. It checks reconnectable bookmarks, copies in both directions, cross-filesystem moves, collision retries and disconnects. Normal tests skip this mount check unless explicitly requested.
 

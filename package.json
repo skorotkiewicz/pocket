@@ -12,7 +12,8 @@
     "check": "bunx tsc --noEmit",
     "server:test": "cargo test --manifest-path server/Cargo.toml",
     "ssh:test": "cargo build --manifest-path server/Cargo.toml && POCKET_SSH_TEST=1 bun test ./tests/ssh.test.ts",
-    "sshfs:test": "POCKET_SSHFS_TEST=1 bun test ./tests/sshfs.test.ts"
+    "sshfs:test": "POCKET_SSHFS_TEST=1 bun test ./tests/sshfs.test.ts",
+    "trash:test": "POCKET_TRASH_TEST=1 bun test ./tests/trash.test.ts"
   },
   "devDependencies": {
     "@types/bun": "latest"

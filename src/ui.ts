@@ -13,6 +13,7 @@ import { Database } from "bun:sqlite";
 import { entries, clean, kind, isMedia, size, textPreview, BINARY_PREVIEW, openExternal, musicPreview, create, renameEntry, copyInto, moveInto, type Entry } from "./files";
 import { previewFiletype } from "./syntax";
 import { bookmarkPath, isRemoteBookmark, mountRemote, unmountRemote } from "./sshfs";
+import { trashEntries, trashInfo, restoreTrash, deleteTrash, type TrashEntry } from "./trash";
 
 const C = { bg: "#202923", panel: "#25312a", ink: "#f5ead7", muted: "#acb9a7", mint: "#a8d5b5", peach: "#efb896", line: "#526854", selected: "#455d49", error: "#f2a799" };
 const label = (text: string) => clean(text).replace(/[\r\n\t]/g, "�");
@@ -44,6 +45,7 @@ export function buildApp(renderer: CliRenderer, initialPath: string, bookmarksFi
     places.add(new TextRenderable(renderer, { content: ` ${label}`, height: 1, fg: C.muted, onMouseDown: () => { if (!modal && !busy) run(() => load(path)); } }));
   }
   places.add(new TextRenderable(renderer, { id: "sshfs-connect", content: " ↗  Connect SSHFS c", height: 1, fg: C.mint, selectable: false, onMouseDown: event => { event.preventDefault(); if (!modal && !busy) connect(); } }));
+  places.add(new TextRenderable(renderer, { id: "trash-place", content: " ×  Trash t", height: 1, fg: C.muted, selectable: false, onMouseDown: event => { event.preventDefault(); if (!modal && !busy) run(showTrash); } }));
   const bookmarkPlaces = new ScrollBoxRenderable(renderer, { id: "saved-places", flexGrow: 1, minHeight: 0 });
   places.add(bookmarkPlaces);
   places.add(new TextRenderable(renderer, { content: "  /\\_/\\\n ( o.o )\n  > ^ <\n\n ?  all shortcuts\n s  share session", fg: C.peach, flexShrink: 0 }));
@@ -137,6 +139,8 @@ export function buildApp(renderer: CliRenderer, initialPath: string, bookmarksFi
       modal.top = modalCompact ? Math.floor((renderer.height - height) / 2) : 0;
       const picker = modal.findDescendantById("bookmark-picker");
       if (picker) picker.height = Math.max(1, height - 3);
+      const trashPicker = modal.findDescendantById("trash-picker");
+      if (trashPicker) trashPicker.height = Math.max(1, height - 10);
       const choices = modal.findDescendantById("confirm-choices") as TabSelectRenderable | undefined;
       if (choices) { choices.tabWidth = Math.max(1, Math.min(17, Math.floor((width - 2) / 2))); choices.width = choices.tabWidth * 2; }
     }
@@ -287,11 +291,12 @@ export function buildApp(renderer: CliRenderer, initialPath: string, bookmarksFi
     });
     prompt.focus();
   }
-  function confirmTrash(description: string, action: () => Promise<unknown>) {
-    const scroll = dialog("Move to trash", description, true);
+  function confirmAction(title: string, button: string, description: string, action: () => Promise<unknown>) {
+    const scroll = dialog(title, description, true);
+    const confirmation = modal;
     const choices = new TabSelectRenderable(renderer, {
       id: "confirm-choices", alignSelf: "center", showDescription: false, showUnderline: false, showScrollArrows: false, wrapSelection: true,
-      options: [{ name: "Cancel", description: "", value: false }, { name: "Move to trash", description: "", value: true }],
+      options: [{ name: "Cancel", description: "", value: false }, { name: button, description: "", value: true }],
       backgroundColor: C.panel, textColor: C.ink, focusedBackgroundColor: C.panel, focusedTextColor: C.ink,
       selectedBackgroundColor: C.selected, selectedTextColor: C.ink,
       keyBindings: [{ name: "tab", action: "move-right" }, { name: "tab", shift: true, action: "move-left" }],
@@ -306,7 +311,7 @@ export function buildApp(renderer: CliRenderer, initialPath: string, bookmarksFi
       if (busy) return;
       if (!option.value) { closeModal(); return; }
       busy = true;
-      run(async () => { try { await action(); closeModal(); } finally { busy = false; } });
+      run(async () => { try { await action(); if (modal === confirmation) closeModal(); } finally { busy = false; } });
     });
     modal!.add(choices, 1); layout(); choices.focus();
     modalMessage!.content = " ← → / Tab choose · Enter confirm · Esc cancel";
@@ -420,7 +425,7 @@ export function buildApp(renderer: CliRenderer, initialPath: string, bookmarksFi
   }
   function trashSelected() {
     const entry = selected(); if (!entry) return;
-    confirmTrash(`Move "${label(entry.name)}" to the system trash?\nRestore with your desktop file manager.`, async () => {
+    confirmAction("Move to trash", "Move to trash", `Move "${label(entry.name)}" to the system trash?\nPress t to restore it in Pocket or use your desktop file manager.`, async () => {
       if (!Bun.which("gio")) throw new Error("System trash needs gio. Nothing was removed.");
       const child = Bun.spawn(["gio", "trash", "--", entry.path], { stdout: "ignore", stderr: "pipe" });
       const error = await new Response(child.stderr).text();
@@ -428,8 +433,69 @@ export function buildApp(renderer: CliRenderer, initialPath: string, bookmarksFi
       await load(cwd); say(`Moved ${entry.name} to trash.`);
     });
   }
+  async function showTrash() {
+    busy = true; say("Loading system trash…");
+    try {
+      const items = await trashEntries();
+      if (disposed) return;
+      const scroll = dialog("Trash", items.length ? "" : "The system trash is empty.");
+      if (!items.length) { say("Trash is empty."); return; }
+      let infoVersion = 0;
+      const details = new TextRenderable(renderer, { id: "trash-info", height: 5, fg: C.muted, wrapMode: "word" });
+      const picker = new SelectRenderable(renderer, {
+        id: "trash-picker", height: Math.max(1, modal!.height - 10), showDescription: false, showScrollIndicator: true,
+        options: items.map(item => ({ name: ` ${label(item.name)}`, description: "", value: item })),
+        textColor: C.ink, backgroundColor: C.panel, focusedBackgroundColor: C.panel, focusedTextColor: C.ink,
+        selectedBackgroundColor: C.selected, selectedTextColor: C.ink,
+        onMouseDown: event => {
+          event.preventDefault(); if (busy) return;
+          const rows = Math.max(1, picker.height);
+          const offset = Math.max(0, Math.min(picker.getSelectedIndex() - Math.floor(rows / 2), items.length - rows));
+          const index = offset + event.y - picker.y;
+          if (index >= 0 && index < items.length) picker.setSelectedIndex(index);
+        },
+      });
+      picker.on(SelectRenderableEvents.SELECTION_CHANGED, () => {
+        const version = ++infoVersion, item = picker.getSelectedOption()?.value as TrashEntry | undefined;
+        details.content = "Reading original location…";
+        if (item) void trashInfo(item.uri).then(text => {
+          if (!disposed && modal?.findDescendantById("trash-picker") === picker && version === infoVersion) details.content = clean(text);
+        }, error => {
+          if (!disposed && modal?.findDescendantById("trash-picker") === picker && version === infoVersion) details.content = clean(String(error));
+        });
+      });
+      picker.on(SelectRenderableEvents.ITEM_SELECTED, () => { if (!busy) run(() => actOnTrash(false)); });
+      scroll.add(picker); scroll.add(details);
+      const buttons = new BoxRenderable(renderer, { height: 1, flexDirection: "row" });
+      for (const [id, text, remove] of [["trash-restore", " Restore r ", false], ["trash-delete", " Delete forever d ", true]] as const) {
+        buttons.add(new TextRenderable(renderer, { id, content: text, fg: remove ? C.error : C.mint, selectable: false, onMouseDown: event => { event.preventDefault(); if (!busy) run(() => actOnTrash(remove)); } }));
+      }
+      scroll.add(buttons); picker.focus(); picker.setSelectedIndex(0);
+      modalMessage!.content = " Enter/r restore · d delete forever · F5 reload · Esc close";
+      say(`${items.length} items in the system trash.`);
+    } finally { busy = false; }
+  }
+  async function actOnTrash(remove: boolean) {
+    const picker = modal?.findDescendantById("trash-picker") as SelectRenderable | undefined;
+    const item = picker?.getSelectedOption()?.value as TrashEntry | undefined;
+    if (!item) return;
+    if (remove) {
+      confirmAction("Delete permanently", "Delete forever", `Permanently delete "${label(item.name)}"?\nThis cannot be undone. Folders include all their contents.`, async () => {
+        await deleteTrash(item.uri); await showTrash(); say(`Permanently deleted ${item.name}.`);
+        if (modalMessage) modalMessage.content = " Permanently deleted. F5 reload · Esc close";
+      });
+    } else {
+      busy = true;
+      try {
+        await restoreTrash(item.uri);
+        await load(cwd).catch(error => say(`Restored, but could not refresh this folder: ${String(error)}`, true));
+        await showTrash(); say(`Restored ${item.name} to its original location.`);
+        if (modalMessage) modalMessage.content = " Restored. Enter/r restores · d deletes · Esc close";
+      } finally { busy = false; }
+    }
+  }
   function help() {
-    dialog("A tiny field guide", `FILES\n↑ ↓ or j k  choose a file\nEnter  open in the host's default app\nMedia-only folder / file inside  open a playlist\n→ / l  step into a folder or open a file\n← / h / Backspace  parent folder\nTab  files / preview, arrows scroll preview\nDrag over text  copy selection when released\n/  find in this folder    Esc  clear filter\n.  show hidden files     g  go to a path\nHome  first file         End  last file\nB  toggle folder bookmark    b  jump to bookmark\nc  connect SSHFS    u  disconnect this mount\nRemote bookmarks reconnect using SSH keys/config\n\nMAKE & EDIT\ne  edit with $EDITOR, defaults to vi\no  open in the host's default app\nn  new file             N  new folder\nr  rename               y  copy selected file or folder\nx  cut selected file or folder\np  paste copy / move, no overwrite\nd  move to system trash, confirmation required\nSpace  play / stop music on the host\nF5  refresh folder\n\nSHARED SESSION\ns  SSH connection and QR code\nCtrl+B then %  split left / right\nCtrl+B then \"  split top / bottom\nCtrl+B then c  new shell tab\nCtrl+B then arrows  switch panes\nCtrl+B then n / p  next / previous tab\nCtrl+B then d  detach, leave session running\n\n?  this guide    q  close file manager\nSSH users share control and your OS permissions.`);
+    dialog("A tiny field guide", `FILES\n↑ ↓ or j k  choose a file\nEnter  open in the host's default app\nMedia-only folder / file inside  open a playlist\n→ / l  step into a folder or open a file\n← / h / Backspace  parent folder\nTab  files / preview, arrows scroll preview\nDrag over text  copy selection when released\n/  find in this folder    Esc  clear filter\n.  show hidden files     g  go to a path\nHome  first file         End  last file\nB  toggle folder bookmark    b  jump to bookmark\nc  connect SSHFS    u  disconnect this mount\nRemote bookmarks reconnect using SSH keys/config\n\nMAKE & EDIT\ne  edit with $EDITOR, defaults to vi\no  open in the host's default app\nn  new file             N  new folder\nr  rename               y  copy selected file or folder\nx  cut selected file or folder\np  paste copy / move, no overwrite\nd  move to system trash, confirmation required\nt  browse trash; Enter/r restores, d deletes forever\nSpace  play / stop music on the host\nF5  refresh folder\n\nSHARED SESSION\ns  SSH connection and QR code\nCtrl+B then %  split left / right\nCtrl+B then \"  split top / bottom\nCtrl+B then c  new shell tab\nCtrl+B then arrows  switch panes\nCtrl+B then n / p  next / previous tab\nCtrl+B then d  detach, leave session running\n\n?  this guide    q  close file manager\nSSH users share control and your OS permissions.`);
   }
   function share() {
     const uri = process.env.CUTE_SSH_URI;
@@ -444,8 +510,12 @@ export function buildApp(renderer: CliRenderer, initialPath: string, bookmarksFi
   function onKey(key: KeyEvent) {
     if (busy) { key.preventDefault(); return; }
     if (modal) {
+      const trashPicker = modal.findDescendantById("trash-picker");
+      if (!key.ctrl && !key.meta && !key.super && ((trashPicker && ["r", "d"].includes(key.name)) || (modal.title === " Trash " && key.name === "f5"))) {
+        key.preventDefault(); run(key.name === "f5" ? showTrash : () => actOnTrash(key.name === "d")); return;
+      }
       if (key.name === "escape") { key.preventDefault(); closeModal(); }
-      else (prompt ?? modal.findDescendantById("confirm-choices") ?? modal.findDescendantById("bookmark-picker") ?? modal.findDescendantById("dialog-content"))?.focus();
+      else (prompt ?? modal.findDescendantById("confirm-choices") ?? modal.findDescendantById("bookmark-picker") ?? modal.findDescendantById("trash-picker") ?? modal.findDescendantById("dialog-content"))?.focus();
       return;
     }
     if (searchInput.focused) {
@@ -468,7 +538,7 @@ export function buildApp(renderer: CliRenderer, initialPath: string, bookmarksFi
     if (key.name === "escape") { searchInput.visible = false; query = ""; filter(); previewFocused = false; list.focus(); layout(); key.preventDefault(); return; }
     if (key.name === "q") { renderer.destroy(); return; }
     if (key.name === "?" || key.sequence === "?") { help(); key.preventDefault(); return; }
-    const globalAction = key.name === "/" ? search : key.name === "s" ? share : key.name === "c" ? connect : key.name === "u" ? disconnect : key.name === "e" ? edit : key.name === "o" || key.name === "return" ? openHost : key.name === "space" ? toggleMusic : undefined;
+    const globalAction = key.name === "/" ? search : key.name === "s" ? share : key.name === "c" ? connect : key.name === "t" ? showTrash : key.name === "u" ? disconnect : key.name === "e" ? edit : key.name === "o" || key.name === "return" ? openHost : key.name === "space" ? toggleMusic : undefined;
     if (globalAction) { key.preventDefault(); run(globalAction); return; }
     if (previewFocused) return;
     const actions: Record<string, () => void | Promise<unknown>> = {
