@@ -1,10 +1,10 @@
 # Pocket
 
 <!--<p align="center">
-  <img src="./logo.svg" width="360" alt="Pocket: a smug cat in a terminal pocket, stealing a snacks folder." />
+  <img src="./.github/assets/logo.svg" width="360" alt="Pocket: a smug cat in a terminal pocket, stealing a snacks folder." />
 </p>-->
 
-<img align="right" src="./logo.svg" width="220" height="220" alt="Pocket: a smug cat in a terminal pocket, stealing a snacks folder.">
+<img align="right" src="./.github/assets/logo.svg" width="220" height="220" alt="Pocket: a smug cat in a terminal pocket, stealing a snacks folder.">
 
 <p align="center">
   <a href="https://www.kernel.org/"><img src="https://img.shields.io/badge/host-Linux-dce7d4?style=flat-square&amp;logo=linux&amp;logoColor=f5ead7&amp;labelColor=24372b" alt="Host: Linux" /></a>
