@@ -17,7 +17,7 @@
 A cat-sized OpenTUI file manager. Peach labels, mint selection, compact panels, clickable places and a keyboard guide built into `?`.
 
 - Browse folders, filter names, show hidden files and scroll text previews.
-- Syntax-highlight JavaScript/JSX, TypeScript/TSX, Rust, Python, JSON, Markdown and Zig in “peek inside”. Colors use Pocket's palette; unknown formats stay plain text.
+- Syntax-highlight JavaScript/JSX, TypeScript/TSX, Rust, Python, JSON, Markdown, Zig, Bash, YAML, TOML, HTML/CSS, SQL, C/C++, Go and Java in `peek inside`. Colors use Pocket's palette; unknown formats stay plain text.
 - Press `B` to add or remove the current folder's bookmark. Press `b` to jump to one, or click it in the places sidebar.
 - Preview PNG, JPEG, WebP and GIF using OpenTUI's native image decoder. tmux uses terminal blocks, so images also work over SSH.
 - Read music tags and a real waveform. Space starts or stops playback with ffplay.

@@ -131,6 +131,17 @@ test("peek inside highlights known code, preserves selection and falls back to p
     ["data.json", '{"snacks": true}\n', "json", "true"],
     ["readme.md", "# snacks\n\n**bold** and `code`.\n", "markdown", "snacks"],
     ["main.zig", 'const snack = "fish";\n', "zig", "const"],
+    ["snacks.sh", "if true; then echo snacks; fi\n", "bash", "if"],
+    ["PKGBUILD", "if true; then echo package; fi\n", "bash", "if"],
+    ["config.yaml", "hungry: true\n", "yaml", "true"],
+    ["config.toml", "hungry = true\n", "toml", "true"],
+    ["page.html", '<p class="cat">snacks</p>\n', "html", "p"],
+    ["style.css", ".cat { color: red; }\n", "css", "color", "168,213,181"],
+    ["snacks.sql", "SELECT snacks FROM pantry;\n", "sql", "SELECT"],
+    ["main.c", "int main() { return 0; }\n", "c", "return"],
+    ["main.cpp", "class Snack {};\n", "cpp", "class"],
+    ["main.go", "package main\nfunc main() {}\n", "go", "package"],
+    ["Snack.java", "class Snack { boolean hungry = true; }\n", "java", "class"],
   ] as const;
   try {
     for (const [name, source] of cases) await Bun.write(join(directory, name), source);
@@ -146,13 +157,13 @@ test("peek inside highlights known code, preserves selection and falls back to p
       await code.highlightingDone;
       await setup.renderOnce();
     }
-    for (const [name, source, filetype, token] of cases) {
+    for (const [name, source, filetype, token, color = "239,184,150"] of cases) {
       await choose(name, source.split("\n")[0]!, filetype);
       expect(lines.visible).toBe(true);
       expect(code.filetype).toBe(filetype);
       expect(code.content).toBe(source.replace(/\t/g, "  "));
       expect(code.getLineHighlights(0).length).toBeGreaterThan(0);
-      expect(setup.captureSpans().lines.flatMap(line => line.spans).some(span => span.text.includes(token) && span.fg.toInts().slice(0, 3).join(",") === "239,184,150")).toBe(true);
+      expect(setup.captureSpans().lines.flatMap(line => line.spans).some(span => span.text.includes(token) && span.fg.toInts().slice(0, 3).join(",") === color)).toBe(true);
     }
     await choose("main.rs", 'println!("snacks")', "rust");
     const frameLines = setup.captureCharFrame().split("\n");
