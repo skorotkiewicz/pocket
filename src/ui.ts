@@ -89,6 +89,7 @@ export function buildApp(renderer: CliRenderer, initialPath: string, bookmarksFi
     string: { fg: C.mint }, comment: { fg: C.muted, italic: true },
     number: { fg: C.peach }, constant: { fg: C.peach }, boolean: { fg: C.peach },
     function: { fg: C.peach }, type: { fg: C.mint }, property: { fg: C.mint },
+    tag: { fg: C.peach }, attribute: { fg: C.mint },
     punctuation: { fg: C.muted }, operator: { fg: C.ink },
     "markup.heading": { fg: C.peach, bold: true }, "markup.raw": { fg: C.mint },
     "markup.strong": { bold: true }, "markup.italic": { italic: true }, "markup.link": { fg: C.mint, underline: true },
@@ -175,7 +176,7 @@ export function buildApp(renderer: CliRenderer, initialPath: string, bookmarksFi
       } else if (kind(entry.path) === "image") {
         if (info.size > 32 * 1024 ** 2) { previewText.content = "Image exceeds the 32 MB preview limit."; return; }
         preview.visible = false; image.visible = true; image.source = entry.path;
-      } else if (kind(entry.path) === "external") {
+      } else if (kind(entry.path) === "external" && !previewFiletype(entry.path)) {
         previewText.content = "Open with the host's default app.\n\nEnter or o to open.\n\nThe app appears on the host, not the SSH client.";
       } else {
         const filetype = kind(entry.path) === "music" ? undefined : previewFiletype(entry.path);
